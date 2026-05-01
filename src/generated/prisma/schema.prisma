@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tournament {
+  address              String           @id
+  organizer            String
+  name                 String
+  usdcMint             String
+  entryFee             BigInt
+  maxParticipants      Int
+  payoutPreset         PayoutPreset
+  registrationDeadline DateTime
+  status               TournamentStatus
+  champion             String?
+  grossPool            BigInt?
+  feeAmount            BigInt?
+  netPool              BigInt?
+  createdAt            DateTime         @default(now())
+  completedAt          DateTime?
+  createdTxSig         String
+  completedTxSig       String?
+  payouts              Payout[]
+
+  @@index([status])
+  @@index([organizer])
+}
+
+model Payout {
+  id                String     @id @default(uuid())
+  tournamentAddress String
+  tournament        Tournament @relation(fields: [tournamentAddress], references: [address], onDelete: Cascade)
+  recipient         String
+  amount            BigInt
+  kind              PayoutKind
+  placement         Int?
+  txSignature       String
+  createdAt         DateTime   @default(now())
+
+  // Idempotency: Helius may redeliver the same webhook event. Same (tx, recipient, kind)
+  // combination is impossible to legitimately produce twice within one tournament's CPI batch.
+  @@unique([txSignature, recipient, kind])
+  @@index([tournamentAddress])
+}
+
+enum PayoutPreset {
+  WinnerTakesAll
+  Standard
+  Deep
+}
+
+enum TournamentStatus {
+  Registration
+  PendingBracketInit
+  Active
+  Completed
+  Cancelled
+}
+
+enum PayoutKind {
+  Prize
+  Refund
+  Fee
+}
