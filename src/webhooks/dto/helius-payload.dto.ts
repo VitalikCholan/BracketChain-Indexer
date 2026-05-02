@@ -16,16 +16,27 @@ export interface HeliusTokenTransfer {
 }
 
 export interface HeliusTransaction {
+  // Top-level signature/timestamp present in Helius Enhanced webhooks.
   signature?: string;
-  slot?: number;
   timestamp?: number;
+  // Helius Raw webhooks nest these under `transaction` and `blockTime`.
+  blockTime?: number;
+  transaction?: {
+    signatures?: string[];
+    message?: unknown;
+  };
+
+  slot?: number;
   type?: string;
   source?: string;
   description?: string;
   transactionError?: unknown;
 
   // Logs may live in any of these locations depending on webhook type.
-  meta?: { logMessages?: string[] };
+  meta?: {
+    logMessages?: string[];
+    err?: unknown;
+  };
   logs?: string[];
   logMessages?: string[];
 

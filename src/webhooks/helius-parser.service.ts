@@ -64,10 +64,10 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async processTransaction(tx: HeliusTransaction): Promise<number> {
-    if (tx.transactionError) {
+    if (tx.transactionError || tx.meta?.err) {
       return 0;
     }
-    const signature = tx.signature;
+    const signature = extractSignature(tx);
     if (!signature) {
       this.logger.warn('Skipping tx without signature');
       return 0;
@@ -131,7 +131,8 @@ export class HeliusParserService implements OnModuleInit {
     const name = '';
 
     // Block timestamp from Helius — fall back to now if absent.
-    const createdAt = tx.timestamp ? new Date(tx.timestamp * 1000) : new Date();
+    const txTimestamp = tx.timestamp ?? tx.blockTime;
+    const createdAt = txTimestamp ? new Date(txTimestamp * 1000) : new Date();
 
     await this.prisma.tournament.upsert({
       where: { address },
@@ -254,6 +255,10 @@ export class HeliusParserService implements OnModuleInit {
 
 function extractLogs(tx: HeliusTransaction): string[] | undefined {
   return tx.meta?.logMessages ?? tx.logs ?? tx.logMessages;
+}
+
+function extractSignature(tx: HeliusTransaction): string | undefined {
+  return tx.signature ?? tx.transaction?.signatures?.[0];
 }
 
 function pubkeyToString(value: unknown): string {
