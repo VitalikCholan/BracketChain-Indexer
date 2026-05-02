@@ -84,21 +84,21 @@ export class HeliusParserService implements OnModuleInit {
     let handled = 0;
     for (const evt of events) {
       switch (evt.name) {
-        case 'tournamentCreated':
+        case 'TournamentCreated':
           await this.handleTournamentCreated(evt.data, tx, signature);
           handled++;
           break;
-        case 'tournamentCompleted':
+        case 'TournamentCompleted':
           await this.handleTournamentCompleted(evt.data, tx, signature);
           handled++;
           break;
-        case 'refundIssued':
+        case 'RefundIssued':
           await this.handleRefundIssued(evt.data, signature);
           handled++;
           break;
         default:
-          // Other events (participantRegistered, matchReported, tournamentStarted,
-          // tournamentCancelled) are not indexed in lean MVP — see plan.
+          // Other events (ParticipantRegistered, MatchReported, TournamentStarted,
+          // TournamentCancelled) are not indexed in lean MVP — see plan.
           break;
       }
     }
@@ -114,12 +114,12 @@ export class HeliusParserService implements OnModuleInit {
   ): Promise<void> {
     const address = pubkeyToString(data.tournament);
     const organizer = pubkeyToString(data.organizer);
-    const usdcMint = pubkeyToString(data.usdcMint);
-    const entryFee = toBigInt(data.entryFee);
-    const maxParticipants = toNumber(data.maxParticipants);
-    const presetIndex = toNumber(data.payoutPreset);
+    const usdcMint = pubkeyToString(data.usdc_mint);
+    const entryFee = toBigInt(data.entry_fee);
+    const maxParticipants = toNumber(data.max_participants);
+    const presetIndex = toNumber(data.payout_preset);
     const payoutPreset = PAYOUT_PRESET_BY_INDEX[presetIndex];
-    const registrationDeadlineSec = toNumber(data.registrationDeadline);
+    const registrationDeadlineSec = toNumber(data.registration_deadline);
 
     if (!payoutPreset) {
       throw new Error(`Unknown payoutPreset index ${presetIndex} in tx ${signature}`);
@@ -170,10 +170,10 @@ export class HeliusParserService implements OnModuleInit {
   ): Promise<void> {
     const address = pubkeyToString(data.tournament);
     const champion = pubkeyToString(data.champion);
-    const grossPool = toBigInt(data.grossPool);
-    const feeAmount = toBigInt(data.feeAmount);
-    const netPool = toBigInt(data.netPool);
-    const completedAtSec = toNumber(data.completedAt);
+    const grossPool = toBigInt(data.gross_pool);
+    const feeAmount = toBigInt(data.fee_amount);
+    const netPool = toBigInt(data.net_pool);
+    const completedAtSec = toNumber(data.completed_at);
 
     // Use a transaction so Tournament update + Payout inserts are atomic.
     await this.prisma.$transaction(async (txn) => {
