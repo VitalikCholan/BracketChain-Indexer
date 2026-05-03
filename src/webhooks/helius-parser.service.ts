@@ -137,10 +137,12 @@ export class HeliusParserService implements OnModuleInit {
       throw new Error(`Unknown payoutPreset index ${presetIndex} in tx ${signature}`);
     }
 
-    // Name isn't in the event — read it later if needed. For now, store empty
-    // string. Frontend that needs it can fetch the on-chain account.
-    // (Trade-off: saves us a CPI / RPC call here.)
-    const name = '';
+    // Name was added to TournamentCreated in program v0.2.x — see events.rs.
+    // Older events emitted before the upgrade lack the field and decode to ''.
+    // Defensive coercion: untrusted on-chain string, clamp to MAX_TOURNAMENT_NAME_LEN
+    // to match the program's enforced bound.
+    const rawName = typeof data.name === 'string' ? data.name : '';
+    const name = rawName.slice(0, 32);
 
     // Block timestamp from Helius — fall back to now if absent.
     const txTimestamp = tx.timestamp ?? tx.blockTime;
@@ -165,6 +167,7 @@ export class HeliusParserService implements OnModuleInit {
       update: {
         // Idempotent re-delivery: only refresh fields the source-of-truth event sets.
         organizer,
+        name,
         tokenMint,
         entryFee,
         organizerDeposit,
