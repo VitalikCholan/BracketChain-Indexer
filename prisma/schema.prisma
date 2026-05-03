@@ -11,8 +11,13 @@ model Tournament {
   address              String           @id
   organizer            String
   name                 String
-  usdcMint             String
+  /// SPL Token mint for the prize pool. Renamed from `usdcMint` 2026-05-03 —
+  /// the program is mint-agnostic; USDC is one of many possible mints.
+  tokenMint            String
   entryFee             BigInt
+  /// Phase 2.5: optional organizer top-up to the prize pool. Zero when
+  /// not provided (Variant B optional).
+  organizerDeposit     BigInt           @default(0)
   maxParticipants      Int
   payoutPreset         PayoutPreset
   registrationDeadline DateTime
@@ -66,4 +71,7 @@ enum PayoutKind {
   Prize
   Refund
   Fee
+  /// Phase 2.5: refund of organizer's deposit on cancel. Distinct from
+  /// `Refund` (per-participant entry-fee refund) for analytics + display.
+  OrganizerRefund
 }

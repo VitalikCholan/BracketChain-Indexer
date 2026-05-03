@@ -33,7 +33,10 @@ export class HeliusParserService implements OnModuleInit {
   private readonly logger = new Logger(HeliusParserService.name);
   private parser!: EventParser;
   private programId!: PublicKey;
-  private usdcMintFilter: string | null = null;
+  /// Optional mint filter for tokenTransfers — set via TOKEN_MINT_FILTER env
+  /// (legacy: USDC_MINT). Skip transfers in other mints when narrowing the
+  /// indexer to a single token. Leave unset for multi-token indexing.
+  private tokenMintFilter: string | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -45,7 +48,8 @@ export class HeliusParserService implements OnModuleInit {
     this.programId = new PublicKey(programIdStr);
     const coder = new BorshCoder(idlJson as Idl);
     this.parser = new EventParser(this.programId, coder);
-    this.usdcMintFilter = process.env.USDC_MINT ?? null;
+    // Back-compat: fall back to legacy USDC_MINT env if TOKEN_MINT_FILTER unset.
+    this.tokenMintFilter = process.env.TOKEN_MINT_FILTER ?? process.env.USDC_MINT ?? null;
     this.logger.log(`Initialized parser for program ${this.programId.toBase58()}`);
   }
 
@@ -114,8 +118,16 @@ export class HeliusParserService implements OnModuleInit {
   ): Promise<void> {
     const address = pubkeyToString(data.tournament);
     const organizer = pubkeyToString(data.organizer);
-    const usdcMint = pubkeyToString(data.usdc_mint);
+    // Event field is `token_mint` (snake_case in IDL). Always was — earlier
+    // indexer code read `data.usdc_mint` which was a latent bug because the
+    // Rust event struct named it `token_mint` from day one (multi-token-ready).
+    const tokenMint = pubkeyToString(data.token_mint);
     const entryFee = toBigInt(data.entry_fee);
+    // Phase 2.5: organizer's optional top-up to the prize pool. Defaults to 0
+    // for back-compat with re-played pre-2.5 events (where the field is absent).
+    const organizerDeposit = data.organizer_deposit !== undefined
+      ? toBigInt(data.organizer_deposit)
+      : 0n;
     const maxParticipants = toNumber(data.max_participants);
     const presetIndex = toNumber(data.payout_preset);
     const payoutPreset = PAYOUT_PRESET_BY_INDEX[presetIndex];
@@ -140,8 +152,9 @@ export class HeliusParserService implements OnModuleInit {
         address,
         organizer,
         name,
-        usdcMint,
+        tokenMint,
         entryFee,
+        organizerDeposit,
         maxParticipants,
         payoutPreset,
         registrationDeadline: new Date(registrationDeadlineSec * 1000),
@@ -152,15 +165,18 @@ export class HeliusParserService implements OnModuleInit {
       update: {
         // Idempotent re-delivery: only refresh fields the source-of-truth event sets.
         organizer,
-        usdcMint,
+        tokenMint,
         entryFee,
+        organizerDeposit,
         maxParticipants,
         payoutPreset,
         registrationDeadline: new Date(registrationDeadlineSec * 1000),
         createdTxSig: signature,
       },
     });
-    this.logger.log(`tournamentCreated ${address} (preset=${payoutPreset})`);
+    this.logger.log(
+      `tournamentCreated ${address} (preset=${payoutPreset}, deposit=${organizerDeposit})`,
+    );
   }
 
   private async handleTournamentCompleted(
@@ -190,7 +206,7 @@ export class HeliusParserService implements OnModuleInit {
         },
       });
 
-      const payouts = derivePayoutsFromTransfers(tx, address, feeAmount, this.usdcMintFilter);
+      const payouts = derivePayoutsFromTransfers(tx, address, feeAmount, this.tokenMintFilter);
       if (payouts.length === 0) return;
 
       // createMany with skipDuplicates handles webhook redelivery via the
@@ -221,33 +237,43 @@ export class HeliusParserService implements OnModuleInit {
     // Refund event references a tournament that may not yet be in our DB if
     // we somehow missed its TournamentCreated. Skip silently — the row will
     // get re-emitted on subsequent flow / V1 reconciliation.
-    const exists = await this.prisma.tournament.findUnique({
+    const tournament = await this.prisma.tournament.findUnique({
       where: { address: tournamentAddress },
-      select: { address: true },
+      select: { address: true, organizer: true, organizerDeposit: true },
     });
-    if (!exists) {
+    if (!tournament) {
       this.logger.warn(`refundIssued for unknown tournament ${tournamentAddress}, skipping`);
       return;
     }
+
+    // Phase 2.5: cancel emits one RefundIssued per refunded participant +
+    // (optionally) one for the organizer's deposit. Distinguish by
+    // recipient == tournament.organizer && tournament.organizerDeposit > 0,
+    // because organizer_deposit_refunded flag isn't on this event payload.
+    const isOrganizerRefund =
+      recipient === tournament.organizer && tournament.organizerDeposit > 0n;
+    const kind = isOrganizerRefund ? PayoutKind.OrganizerRefund : PayoutKind.Refund;
 
     await this.prisma.payout.upsert({
       where: {
         txSignature_recipient_kind: {
           txSignature: signature,
           recipient,
-          kind: PayoutKind.Refund,
+          kind,
         },
       },
       create: {
         tournamentAddress,
         recipient,
         amount,
-        kind: PayoutKind.Refund,
+        kind,
         txSignature: signature,
       },
       update: { amount },
     });
-    this.logger.log(`refundIssued ${tournamentAddress} → ${recipient} (${amount})`);
+    this.logger.log(
+      `refundIssued ${tournamentAddress} → ${recipient} (${amount}, kind=${kind})`,
+    );
   }
 }
 
@@ -310,7 +336,7 @@ function derivePayoutsFromTransfers(
   tx: HeliusTransaction,
   tournamentAddress: string,
   feeAmount: bigint,
-  usdcMintFilter: string | null,
+  tokenMintFilter: string | null,
 ): DerivedPayout[] {
   const transfers = tx.tokenTransfers;
   if (!transfers || transfers.length === 0) return [];
@@ -318,7 +344,7 @@ function derivePayoutsFromTransfers(
   // Vault is owned by the Tournament PDA (token::authority = tournament).
   const fromVault = transfers.filter((t) => {
     if (t.fromUserAccount !== tournamentAddress) return false;
-    if (usdcMintFilter && t.mint && t.mint !== usdcMintFilter) return false;
+    if (tokenMintFilter && t.mint && t.mint !== tokenMintFilter) return false;
     return true;
   });
   if (fromVault.length === 0) return [];
