@@ -25,9 +25,27 @@ export class TournamentsController {
     return rows.map(serializeBigInts);
   }
 
+  @Get(':address')
+  async getOne(@Param('address') address: string) {
+    const row = await this.service.getOne(address);
+    return serializeBigInts(row);
+  }
+
   @Get(':address/payouts')
   async payouts(@Param('address') address: string) {
     const rows = await this.service.getPayouts(address);
+    return rows.map(serializeBigInts);
+  }
+
+  @Get(':address/participants')
+  async participants(@Param('address') address: string) {
+    const rows = await this.service.getParticipants(address);
+    return rows.map(serializeBigInts);
+  }
+
+  @Get(':address/matches')
+  async matches(@Param('address') address: string) {
+    const rows = await this.service.getMatches(address);
     return rows.map(serializeBigInts);
   }
 }

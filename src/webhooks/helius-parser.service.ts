@@ -5,6 +5,7 @@ import BN from 'bn.js';
 
 import { PrismaService } from '../prisma.service';
 import {
+  MatchStatus,
   PayoutKind,
   PayoutPreset,
   TournamentStatus,
@@ -92,8 +93,24 @@ export class HeliusParserService implements OnModuleInit {
           await this.handleTournamentCreated(evt.data, tx, signature);
           handled++;
           break;
+        case 'ParticipantRegistered':
+          await this.handleParticipantRegistered(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'TournamentStarted':
+          await this.handleTournamentStarted(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'MatchReported':
+          await this.handleMatchReported(evt.data, tx, signature);
+          handled++;
+          break;
         case 'TournamentCompleted':
           await this.handleTournamentCompleted(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'TournamentCancelled':
+          await this.handleTournamentCancelled(evt.data, tx, signature);
           handled++;
           break;
         case 'RefundIssued':
@@ -101,8 +118,7 @@ export class HeliusParserService implements OnModuleInit {
           handled++;
           break;
         default:
-          // Other events (ParticipantRegistered, MatchReported, TournamentStarted,
-          // TournamentCancelled) are not indexed in lean MVP — see plan.
+          // Unknown event — ignore. Future events should be added explicitly.
           break;
       }
     }
@@ -147,6 +163,7 @@ export class HeliusParserService implements OnModuleInit {
     // Block timestamp from Helius — fall back to now if absent.
     const txTimestamp = tx.timestamp ?? tx.blockTime;
     const createdAt = txTimestamp ? new Date(txTimestamp * 1000) : new Date();
+    const chainSlotAtWrite = extractSlot(tx);
 
     await this.prisma.tournament.upsert({
       where: { address },
@@ -163,6 +180,7 @@ export class HeliusParserService implements OnModuleInit {
         status: TournamentStatus.Registration,
         createdAt,
         createdTxSig: signature,
+        chainSlotAtWrite,
       },
       update: {
         // Idempotent re-delivery: only refresh fields the source-of-truth event sets.
@@ -175,6 +193,7 @@ export class HeliusParserService implements OnModuleInit {
         payoutPreset,
         registrationDeadline: new Date(registrationDeadlineSec * 1000),
         createdTxSig: signature,
+        chainSlotAtWrite,
       },
     });
     this.logger.log(
@@ -194,6 +213,8 @@ export class HeliusParserService implements OnModuleInit {
     const netPool = toBigInt(data.net_pool);
     const completedAtSec = toNumber(data.completed_at);
 
+    const chainSlotAtWrite = extractSlot(tx);
+
     // Use a transaction so Tournament update + Payout inserts are atomic.
     await this.prisma.$transaction(async (txn) => {
       await txn.tournament.update({
@@ -206,11 +227,64 @@ export class HeliusParserService implements OnModuleInit {
           netPool,
           completedAt: new Date(completedAtSec * 1000),
           completedTxSig: signature,
+          chainSlotAtWrite,
         },
       });
 
-      const payouts = derivePayoutsFromTransfers(tx, address, feeAmount, this.tokenMintFilter);
-      if (payouts.length === 0) return;
+      // Phase 5.2 (P6-4 fix): derive payouts from the event itself instead of
+      // tokenTransfers. The TournamentCompleted event carries `placement_payouts`
+      // (per-place [recipient, amount]) + `treasury_recipient` (the fee receiver) —
+      // self-contained and immune to Helius `tokenTransfers` being empty.
+      // Old `derivePayoutsFromTransfers(...)` left as fallback below for events
+      // missing the field (re-replays of pre-event-upgrade txs).
+      const placementPayouts = parsePlacementPayouts(data.placement_payouts);
+      const treasuryRecipient = data.treasury_recipient !== undefined
+        ? pubkeyToString(data.treasury_recipient)
+        : null;
+
+      const eventDerivedPayouts: Array<{ recipient: string; amount: bigint; kind: PayoutKind; placement: number | null }> = [];
+
+      for (const p of placementPayouts) {
+        eventDerivedPayouts.push({
+          recipient: p.recipient,
+          amount: p.amount,
+          kind: PayoutKind.Prize,
+          placement: p.place,
+        });
+      }
+      if (treasuryRecipient && feeAmount > 0n) {
+        eventDerivedPayouts.push({
+          recipient: treasuryRecipient,
+          amount: feeAmount,
+          kind: PayoutKind.Fee,
+          placement: null,
+        });
+      }
+
+      // Fall back to legacy tokenTransfer parsing if the event was emitted by
+      // an older program version that didn't include placement_payouts (only
+      // possible when re-replaying historical webhooks; live txs always carry
+      // it post-event-upgrade).
+      const payouts = eventDerivedPayouts.length > 0
+        ? eventDerivedPayouts
+        : derivePayoutsFromTransfers(tx, address, feeAmount, this.tokenMintFilter);
+
+      if (payouts.length === 0) {
+        const transferCount = tx.tokenTransfers?.length ?? 0;
+        this.logger.warn(
+          `tournamentCompleted ${address}: 0 payouts derived ` +
+          `(event placement_payouts missing, tokenTransfers=${transferCount}, ` +
+          `mintFilter=${this.tokenMintFilter ?? 'none'}). ` +
+          `Tournament row updated, Payout table NOT populated — UI will show "Pending".`,
+        );
+        return;
+      }
+      this.logger.log(
+        `tournamentCompleted ${address}: inserted ${payouts.length} payout rows ` +
+        `(${payouts.filter((p) => p.kind === PayoutKind.Prize).length} prize, ` +
+        `${payouts.filter((p) => p.kind === PayoutKind.Fee).length} fee, ` +
+        `source=${eventDerivedPayouts.length > 0 ? 'event' : 'tokenTransfers'})`,
+      );
 
       // createMany with skipDuplicates handles webhook redelivery via the
       // (txSignature, recipient, kind) unique index.
@@ -227,6 +301,161 @@ export class HeliusParserService implements OnModuleInit {
       });
     });
     this.logger.log(`tournamentCompleted ${address} → champion ${champion}`);
+  }
+
+  private async handleParticipantRegistered(
+    data: Record<string, unknown>,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const wallet = pubkeyToString(data.wallet);
+    const seedIndex = toNumber(data.participant_index);
+    const chainSlotAtWrite = extractSlot(tx);
+    const txTimestamp = tx.timestamp ?? tx.blockTime;
+    const registeredAt = txTimestamp ? new Date(txTimestamp * 1000) : new Date();
+
+    // Foreign-key guard: skip if the parent Tournament row isn't in the DB
+    // yet (out-of-order webhook delivery — TournamentCreated may arrive after
+    // ParticipantRegistered if Helius batches them in reverse). Phase 5.4
+    // reconciliation cron will backfill from chain.
+    const tournamentExists = await this.prisma.tournament.findUnique({
+      where: { address: tournamentAddress },
+      select: { address: true },
+    });
+    if (!tournamentExists) {
+      this.logger.warn(
+        `participantRegistered for unknown tournament ${tournamentAddress} — skipping (will be backfilled by reconciliation)`,
+      );
+      return;
+    }
+
+    await this.prisma.participant.upsert({
+      where: {
+        tournamentAddress_wallet: { tournamentAddress, wallet },
+      },
+      create: {
+        tournamentAddress,
+        wallet,
+        seedIndex,
+        registeredAt,
+        registeredTxSig: signature,
+        chainSlotAtWrite,
+      },
+      update: {
+        // Idempotent re-delivery refreshes seedIndex (in case of program rewrite)
+        // but never resets refundPaid, since RefundIssued is the source of truth there.
+        seedIndex,
+        registeredTxSig: signature,
+        chainSlotAtWrite,
+      },
+    });
+    this.logger.log(
+      `participantRegistered ${tournamentAddress} → ${wallet} (seedIndex=${seedIndex})`,
+    );
+  }
+
+  private async handleTournamentStarted(
+    data: Record<string, unknown>,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const address = pubkeyToString(data.tournament);
+    const startedAtSec = toNumber(data.started_at);
+    const chainSlotAtWrite = extractSlot(tx);
+
+    // Flip status to Active. The program emits TournamentStarted in the final
+    // start_tournament chunk that completes bracket initialization, so by the
+    // time we see this event the on-chain status IS Active. Subsequent chunks
+    // (if any retried) won't re-emit because the program guards by status.
+    await this.prisma.tournament.update({
+      where: { address },
+      data: {
+        status: TournamentStatus.Active,
+        chainSlotAtWrite,
+      },
+    });
+    this.logger.log(
+      `tournamentStarted ${address} (startedAt=${new Date(startedAtSec * 1000).toISOString()}, signature=${signature})`,
+    );
+  }
+
+  private async handleMatchReported(
+    data: Record<string, unknown>,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const winner = pubkeyToString(data.winner);
+    const reportedAtSec = toNumber(data.reported_at);
+    const chainSlotAtWrite = extractSlot(tx);
+
+    // Foreign-key guard (same pattern as participants).
+    const tournamentExists = await this.prisma.tournament.findUnique({
+      where: { address: tournamentAddress },
+      select: { address: true },
+    });
+    if (!tournamentExists) {
+      this.logger.warn(
+        `matchReported for unknown tournament ${tournamentAddress} — skipping (will be backfilled by reconciliation)`,
+      );
+      return;
+    }
+
+    // Lean indexer: we don't store playerA/playerB on insert because
+    // MatchReported doesn't carry them (they're inferred on-chain from
+    // bracket advancement). Phase 5.4 reconciliation cron will pull full
+    // MatchNode account state via getProgramAccounts to fill the gaps.
+    // For now, frontend reads pending matches from chain via SWR fallback.
+    await this.prisma.match.upsert({
+      where: {
+        tournamentAddress_round_matchIndex: {
+          tournamentAddress,
+          round,
+          matchIndex,
+        },
+      },
+      create: {
+        tournamentAddress,
+        round,
+        matchIndex,
+        winner,
+        status: MatchStatus.Completed,
+        reportedAt: new Date(reportedAtSec * 1000),
+        reportedTxSig: signature,
+        chainSlotAtWrite,
+      },
+      update: {
+        winner,
+        status: MatchStatus.Completed,
+        reportedAt: new Date(reportedAtSec * 1000),
+        reportedTxSig: signature,
+        chainSlotAtWrite,
+      },
+    });
+    this.logger.log(
+      `matchReported ${tournamentAddress} r${round}m${matchIndex} → winner=${winner}`,
+    );
+  }
+
+  private async handleTournamentCancelled(
+    data: Record<string, unknown>,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const address = pubkeyToString(data.tournament);
+    const chainSlotAtWrite = extractSlot(tx);
+
+    await this.prisma.tournament.update({
+      where: { address },
+      data: {
+        status: TournamentStatus.Cancelled,
+        chainSlotAtWrite,
+      },
+    });
+    this.logger.log(`tournamentCancelled ${address} (signature=${signature})`);
   }
 
   private async handleRefundIssued(
@@ -274,6 +503,19 @@ export class HeliusParserService implements OnModuleInit {
       },
       update: { amount },
     });
+
+    // Phase 5.2: also flip Participant.refundPaid for entry-fee refunds so
+    // the participants endpoint reflects refund state without a follow-up
+    // RPC. updateMany is a no-op when the participant row doesn't exist
+    // (e.g. organizer refund or out-of-order delivery — Phase 5.4 cron
+    // will reconcile from chain).
+    if (kind === PayoutKind.Refund) {
+      await this.prisma.participant.updateMany({
+        where: { tournamentAddress, wallet: recipient },
+        data: { refundPaid: true },
+      });
+    }
+
     this.logger.log(
       `refundIssued ${tournamentAddress} → ${recipient} (${amount}, kind=${kind})`,
     );
@@ -286,8 +528,52 @@ function extractLogs(tx: HeliusTransaction): string[] | undefined {
   return tx.meta?.logMessages ?? tx.logs ?? tx.logMessages;
 }
 
+/**
+ * Phase 5.1: Solana slot of the webhook tx, used as the row's "freshness
+ * watermark". Frontend SWR layer compares this to current cluster slot and
+ * triggers a chain-side reconcile if the gap exceeds N slots.
+ *
+ * Defensive: webhook payloads occasionally arrive without `slot` (raw vs
+ * enhanced shape mismatch). Returning 0n in that case keeps the row writable
+ * but signals "unknown freshness" — readers conservatively treat this as
+ * stale and re-fetch from chain.
+ */
+function extractSlot(tx: HeliusTransaction): bigint {
+  if (typeof tx.slot === 'number' && Number.isFinite(tx.slot) && tx.slot >= 0) {
+    return BigInt(Math.floor(tx.slot));
+  }
+  return 0n;
+}
+
 function extractSignature(tx: HeliusTransaction): string | undefined {
   return tx.signature ?? tx.transaction?.signatures?.[0];
+}
+
+/**
+ * Phase 5.2 / P6-4 fix: parse `placement_payouts: Vec<PlacementPayout>` from
+ * the TournamentCompleted event. Each entry is `{ place: u8, recipient: Pubkey,
+ * amount: u64 }`. Returns [] if the field is missing (pre-event-upgrade replay)
+ * or malformed — caller falls back to legacy tokenTransfer parsing.
+ */
+function parsePlacementPayouts(
+  raw: unknown,
+): Array<{ place: number; recipient: string; amount: bigint }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ place: number; recipient: string; amount: bigint }> = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    try {
+      out.push({
+        place: toNumber(e.place),
+        recipient: pubkeyToString(e.recipient),
+        amount: toBigInt(e.amount),
+      });
+    } catch {
+      // Skip malformed rows — best-effort.
+    }
+  }
+  return out;
 }
 
 function pubkeyToString(value: unknown): string {

@@ -30,10 +30,74 @@ model Tournament {
   completedAt          DateTime?
   createdTxSig         String
   completedTxSig       String?
+  /// Phase 5.1: Solana slot of the most recent webhook tx that mutated this
+  /// row. Frontend uses this for stale-while-revalidate freshness gating —
+  /// if `currentSlot - chainSlotAtWrite > N` the row is treated as
+  /// potentially stale and a chain reconcile is enqueued. Zero on legacy
+  /// rows seeded before 5.1; webhook handler upgrades it on the next
+  /// state-changing event for that tournament.
+  chainSlotAtWrite     BigInt           @default(0)
   payouts              Payout[]
+  participants         Participant[]
+  matches              Match[]
 
   @@index([status])
   @@index([organizer])
+}
+
+/// Phase 5.2: per-tournament participant cache.
+/// Source events: ParticipantRegistered (insert), RefundIssued (sets refundPaid).
+/// `seedIndex` is the program-assigned slot used when bracket initialization
+/// orders participants by seedHash + index. Composite unique on (tournament, wallet)
+/// matches the on-chain Participant PDA seeds [b"participant", tournament, wallet].
+model Participant {
+  id                String     @id @default(uuid())
+  tournamentAddress String
+  tournament        Tournament @relation(fields: [tournamentAddress], references: [address], onDelete: Cascade)
+  wallet            String
+  seedIndex         Int
+  refundPaid        Boolean    @default(false)
+  registeredAt      DateTime   @default(now())
+  registeredTxSig   String
+  /// Phase 5.1 freshness watermark — slot of the most recent webhook write.
+  chainSlotAtWrite  BigInt     @default(0)
+
+  @@unique([tournamentAddress, wallet])
+  @@index([tournamentAddress])
+  @@index([wallet])
+}
+
+/// Phase 5.2: per-tournament match cache.
+/// Source events: MatchReported (winner + completion). Pending matches are NOT
+/// seeded from TournamentStarted (lean-indexer philosophy — no RPC fan-out in
+/// webhook handler); frontend SWR layer falls back to chain reads for full
+/// bracket topology when needed.
+/// Bye matches (auto-completed by start_tournament for byes) WILL eventually be
+/// upserted by the reconciliation cron in Phase 5.4. Until then they live only
+/// on chain.
+model Match {
+  id                String      @id @default(uuid())
+  tournamentAddress String
+  tournament        Tournament  @relation(fields: [tournamentAddress], references: [address], onDelete: Cascade)
+  round             Int
+  matchIndex        Int
+  playerA           String?
+  playerB           String?
+  winner            String?
+  status            MatchStatus @default(Pending)
+  bye               Boolean     @default(false)
+  reportedAt        DateTime?
+  reportedTxSig     String?
+  chainSlotAtWrite  BigInt      @default(0)
+
+  @@unique([tournamentAddress, round, matchIndex])
+  @@index([tournamentAddress])
+}
+
+enum MatchStatus {
+  Pending
+  Active
+  Completed
 }
 
 model Payout {
