@@ -79,8 +79,13 @@ export class ChainReaderService implements OnModuleInit {
           continue;
         }
         try {
+          // Account name MUST match the IDL exactly (case-sensitive).
+          // BorshAccountsCoder does a strict `idl.accounts.find(a => a.name === name)`;
+          // mismatch throws "Account not found: <name>", which earlier looked
+          // like a closed-account / chain-state issue but was actually a TS-side
+          // map miss that broke every chain read since the cron shipped.
           const decoded = this.coder.decode<DecodedTournament>(
-            'tournament',
+            'Tournament',
             info.data as Buffer,
           );
           out.push(decoded);
