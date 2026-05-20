@@ -3,10 +3,12 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.enableCors({
-    origin: (process.env.FRONTEND_ORIGIN ?? '*').split(',').map((s) => s.trim()),
+    origin: (process.env.FRONTEND_ORIGIN ?? '*')
+      .split(',')
+      .map((s) => s.trim()),
     credentials: false,
   });
 

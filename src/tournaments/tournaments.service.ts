@@ -12,7 +12,29 @@ import type {
 export class TournamentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(params: { status?: TournamentStatus; limit?: number }): Promise<Tournament[]> {
+  /**
+   * Lookup whether (organizer, name) is already taken. Uses `findFirst`
+   * rather than `findUnique` because the schema has no composite unique
+   * on (organizer, name) — the constraint is enforced on-chain by PDA
+   * derivation (`[b"tournament", organizer, name]`), so the DB cannot
+   * contain duplicates barring an indexer bug. `@@index([organizer])`
+   * keeps this query cheap.
+   */
+  async checkName(
+    organizer: string,
+    name: string,
+  ): Promise<{ taken: boolean; address?: string }> {
+    const row = await this.prisma.tournament.findFirst({
+      where: { organizer, name },
+      select: { address: true },
+    });
+    return row ? { taken: true, address: row.address } : { taken: false };
+  }
+
+  async list(params: {
+    status?: TournamentStatus;
+    limit?: number;
+  }): Promise<Tournament[]> {
     const { status, limit = 20 } = params;
     return this.prisma.tournament.findMany({
       where: status ? { status } : undefined,

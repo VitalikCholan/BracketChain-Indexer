@@ -50,11 +50,16 @@ export class HeliusParserService implements OnModuleInit {
     const coder = new BorshCoder(idlJson as Idl);
     this.parser = new EventParser(this.programId, coder);
     // Back-compat: fall back to legacy USDC_MINT env if TOKEN_MINT_FILTER unset.
-    this.tokenMintFilter = process.env.TOKEN_MINT_FILTER ?? process.env.USDC_MINT ?? null;
-    this.logger.log(`Initialized parser for program ${this.programId.toBase58()}`);
+    this.tokenMintFilter =
+      process.env.TOKEN_MINT_FILTER ?? process.env.USDC_MINT ?? null;
+    this.logger.log(
+      `Initialized parser for program ${this.programId.toBase58()}`,
+    );
   }
 
-  async processBatch(body: HeliusWebhookBody): Promise<{ processed: number; events: number }> {
+  async processBatch(
+    body: HeliusWebhookBody,
+  ): Promise<{ processed: number; events: number }> {
     let eventCount = 0;
     for (const tx of body) {
       try {
@@ -141,16 +146,19 @@ export class HeliusParserService implements OnModuleInit {
     const entryFee = toBigInt(data.entry_fee);
     // Phase 2.5: organizer's optional top-up to the prize pool. Defaults to 0
     // for back-compat with re-played pre-2.5 events (where the field is absent).
-    const organizerDeposit = data.organizer_deposit !== undefined
-      ? toBigInt(data.organizer_deposit)
-      : 0n;
+    const organizerDeposit =
+      data.organizer_deposit !== undefined
+        ? toBigInt(data.organizer_deposit)
+        : 0n;
     const maxParticipants = toNumber(data.max_participants);
     const presetIndex = toNumber(data.payout_preset);
     const payoutPreset = PAYOUT_PRESET_BY_INDEX[presetIndex];
     const registrationDeadlineSec = toNumber(data.registration_deadline);
 
     if (!payoutPreset) {
-      throw new Error(`Unknown payoutPreset index ${presetIndex} in tx ${signature}`);
+      throw new Error(
+        `Unknown payoutPreset index ${presetIndex} in tx ${signature}`,
+      );
     }
 
     // Name was added to TournamentCreated in program v0.2.x — see events.rs.
@@ -238,11 +246,17 @@ export class HeliusParserService implements OnModuleInit {
       // Old `derivePayoutsFromTransfers(...)` left as fallback below for events
       // missing the field (re-replays of pre-event-upgrade txs).
       const placementPayouts = parsePlacementPayouts(data.placement_payouts);
-      const treasuryRecipient = data.treasury_recipient !== undefined
-        ? pubkeyToString(data.treasury_recipient)
-        : null;
+      const treasuryRecipient =
+        data.treasury_recipient !== undefined
+          ? pubkeyToString(data.treasury_recipient)
+          : null;
 
-      const eventDerivedPayouts: Array<{ recipient: string; amount: bigint; kind: PayoutKind; placement: number | null }> = [];
+      const eventDerivedPayouts: Array<{
+        recipient: string;
+        amount: bigint;
+        kind: PayoutKind;
+        placement: number | null;
+      }> = [];
 
       for (const p of placementPayouts) {
         eventDerivedPayouts.push({
@@ -265,25 +279,31 @@ export class HeliusParserService implements OnModuleInit {
       // an older program version that didn't include placement_payouts (only
       // possible when re-replaying historical webhooks; live txs always carry
       // it post-event-upgrade).
-      const payouts = eventDerivedPayouts.length > 0
-        ? eventDerivedPayouts
-        : derivePayoutsFromTransfers(tx, address, feeAmount, this.tokenMintFilter);
+      const payouts =
+        eventDerivedPayouts.length > 0
+          ? eventDerivedPayouts
+          : derivePayoutsFromTransfers(
+              tx,
+              address,
+              feeAmount,
+              this.tokenMintFilter,
+            );
 
       if (payouts.length === 0) {
         const transferCount = tx.tokenTransfers?.length ?? 0;
         this.logger.warn(
           `tournamentCompleted ${address}: 0 payouts derived ` +
-          `(event placement_payouts missing, tokenTransfers=${transferCount}, ` +
-          `mintFilter=${this.tokenMintFilter ?? 'none'}). ` +
-          `Tournament row updated, Payout table NOT populated — UI will show "Pending".`,
+            `(event placement_payouts missing, tokenTransfers=${transferCount}, ` +
+            `mintFilter=${this.tokenMintFilter ?? 'none'}). ` +
+            `Tournament row updated, Payout table NOT populated — UI will show "Pending".`,
         );
         return;
       }
       this.logger.log(
         `tournamentCompleted ${address}: inserted ${payouts.length} payout rows ` +
-        `(${payouts.filter((p) => p.kind === PayoutKind.Prize).length} prize, ` +
-        `${payouts.filter((p) => p.kind === PayoutKind.Fee).length} fee, ` +
-        `source=${eventDerivedPayouts.length > 0 ? 'event' : 'tokenTransfers'})`,
+          `(${payouts.filter((p) => p.kind === PayoutKind.Prize).length} prize, ` +
+          `${payouts.filter((p) => p.kind === PayoutKind.Fee).length} fee, ` +
+          `source=${eventDerivedPayouts.length > 0 ? 'event' : 'tokenTransfers'})`,
       );
 
       // createMany with skipDuplicates handles webhook redelivery via the
@@ -313,7 +333,9 @@ export class HeliusParserService implements OnModuleInit {
     const seedIndex = toNumber(data.participant_index);
     const chainSlotAtWrite = extractSlot(tx);
     const txTimestamp = tx.timestamp ?? tx.blockTime;
-    const registeredAt = txTimestamp ? new Date(txTimestamp * 1000) : new Date();
+    const registeredAt = txTimestamp
+      ? new Date(txTimestamp * 1000)
+      : new Date();
 
     // Foreign-key guard: skip if the parent Tournament row isn't in the DB
     // yet (out-of-order webhook delivery — TournamentCreated may arrive after
@@ -474,7 +496,9 @@ export class HeliusParserService implements OnModuleInit {
       select: { address: true, organizer: true, organizerDeposit: true },
     });
     if (!tournament) {
-      this.logger.warn(`refundIssued for unknown tournament ${tournamentAddress}, skipping`);
+      this.logger.warn(
+        `refundIssued for unknown tournament ${tournamentAddress}, skipping`,
+      );
       return;
     }
 
@@ -484,7 +508,9 @@ export class HeliusParserService implements OnModuleInit {
     // because organizer_deposit_refunded flag isn't on this event payload.
     const isOrganizerRefund =
       recipient === tournament.organizer && tournament.organizerDeposit > 0n;
-    const kind = isOrganizerRefund ? PayoutKind.OrganizerRefund : PayoutKind.Refund;
+    const kind = isOrganizerRefund
+      ? PayoutKind.OrganizerRefund
+      : PayoutKind.Refund;
 
     await this.prisma.payout.upsert({
       where: {
@@ -580,10 +606,15 @@ function pubkeyToString(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value instanceof PublicKey) return value.toBase58();
   // Anchor's BorshCoder may return PublicKey as object with `_bn` etc — fall back to string()
-  if (value && typeof (value as { toString?: () => string }).toString === 'function') {
+  if (
+    value &&
+    typeof (value as { toString?: () => string }).toString === 'function'
+  ) {
     return (value as { toString: () => string }).toString();
   }
-  throw new Error(`Cannot coerce value to pubkey string: ${JSON.stringify(value)}`);
+  throw new Error(
+    `Cannot coerce value to pubkey string: ${JSON.stringify(value)}`,
+  );
 }
 
 function toBigInt(value: unknown): bigint {
@@ -591,7 +622,10 @@ function toBigInt(value: unknown): bigint {
   if (typeof value === 'number') return BigInt(value);
   if (typeof value === 'string') return BigInt(value);
   if (value instanceof BN) return BigInt(value.toString());
-  if (value && typeof (value as { toString?: () => string }).toString === 'function') {
+  if (
+    value &&
+    typeof (value as { toString?: () => string }).toString === 'function'
+  ) {
     return BigInt((value as { toString: () => string }).toString());
   }
   throw new Error(`Cannot coerce value to bigint: ${JSON.stringify(value)}`);
@@ -652,7 +686,12 @@ function derivePayoutsFromTransfers(
       out.push({ recipient, amount, kind: PayoutKind.Fee, placement: null });
       feeAssigned = true;
     } else {
-      out.push({ recipient, amount, kind: PayoutKind.Prize, placement: placementCounter++ });
+      out.push({
+        recipient,
+        amount,
+        kind: PayoutKind.Prize,
+        placement: placementCounter++,
+      });
     }
   }
   return out;
@@ -668,7 +707,10 @@ function transferAmountToBigInt(t: HeliusTokenTransfer): bigint | null {
       /* fall through */
     }
   }
-  if (typeof t.tokenAmount === 'number' && t.rawTokenAmount?.decimals !== undefined) {
+  if (
+    typeof t.tokenAmount === 'number' &&
+    t.rawTokenAmount?.decimals !== undefined
+  ) {
     const decimals = t.rawTokenAmount.decimals;
     return BigInt(Math.round(t.tokenAmount * 10 ** decimals));
   }

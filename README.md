@@ -39,12 +39,13 @@ All endpoints accept an `AbortSignal`-friendly client (the SDK uses fetch).
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/tournaments?status=&limit=` | Paginated listing (used by `/explore`). `status` filters to a single `TournamentStatus`. Default `limit=20`, max `100`. |
+| `GET` | `/tournaments/check-name?organizer=&name=` | Pre-create collision check. Returns `{ taken: boolean, address?: string }`. Uniqueness scope is per-organizer (PDA = `[b"tournament", organizer, name]`). |
 | `GET` | `/tournaments/:address` | Single tournament by PDA — backs `/t/[id]` indexer reads. 404 on miss. |
 | `GET` | `/tournaments/:address/payouts` | All `Payout` rows — `kind ∈ { Prize, Refund, Fee, OrganizerRefund }`. |
 | `GET` | `/tournaments/:address/participants` | Per-participant cache (Phase 5.2). |
 | `GET` | `/tournaments/:address/matches` | Reported matches only. Pending matches are NOT seeded — fall back to chain (`getAllMatches` from the SDK) for full bracket topology. |
 | `GET` | `/health` | Liveness + reconciliation snapshot — `lastReconcileAt`, scanned/touched counts, `lastReconcileError`. |
-| `POST` | `/webhooks/helius` | Helius webhook ingest. **Currently unauthenticated** — see [Webhook security](#webhook-security) below. |
+| `POST` | `/webhooks/helius` | Helius webhook ingest. HMAC-SHA256 protected — see [Webhook security](#webhook-security) below. |
 
 DTOs use `class-validator` (status enum, limit 1–100). BigInt → decimal string serialization is handled by `serializeBigInts<T>()` in the controllers.
 
@@ -52,6 +53,8 @@ DTOs use `class-validator` (status enum, limit 1–100). BigInt → decimal stri
 
 ```bash
 curl -s "$INDEXER/tournaments?status=Registration&limit=5" | jq .
+curl -s "$INDEXER/tournaments/check-name?organizer=AuXJ...&name=TestCup" | jq .
+# { "taken": false }
 curl -s "$INDEXER/tournaments/AuXJ.../payouts" | jq '.[] | {kind, amount, recipient}'
 curl -s "$INDEXER/health" | jq '.reconciliation'
 # { "lastReconcileAt": "...", "lastReconcileScanned": 23, "lastReconcileTouched": 2, "lastReconcileError": null }
@@ -95,7 +98,18 @@ await indexer.listTournaments({ status: "Registration", limit: 20 });
 
 ### Webhook security
 
-`POST /webhooks/helius` is currently **unauthenticated** — any caller can submit a payload. `.env.example` reserves `HELIUS_WEBHOOK_SECRET` (currently commented out) for an HMAC guard, but the code path that validates it is not wired. Acceptable for devnet MVP; **mainnet-prep gate**, alongside the program's Squads multisig migration. Tracked in the main repo's risk register.
+`POST /webhooks/helius` is protected by an HMAC-SHA256 guard (`HeliusHmacGuard`). Requests without a valid `X-Helius-Signature` (or `Authorization`) header — verified against `HELIUS_WEBHOOK_SECRET` over the raw request body using `crypto.timingSafeEqual` — are rejected with **401 Unauthorized**.
+
+If `HELIUS_WEBHOOK_SECRET` is unset, every webhook request is rejected (fail-closed). The raw body is captured via NestJS's native `{ rawBody: true }` factory option, so no extra middleware is needed.
+
+**Secret rotation runbook:**
+
+1. Generate a new secret: `openssl rand -hex 32`.
+2. Update Helius dashboard → Webhook → Authentication header (or Signing secret) with the new value.
+3. Update `HELIUS_WEBHOOK_SECRET` in Railway env vars; the service redeploys automatically.
+4. Verify: `curl -X POST $URL/webhooks/helius -d '{}'` → expect 401. A live Helius delivery within ~1 minute should succeed.
+
+Old captured payloads replayed with their old signatures fail verification immediately after rotation.
 
 ---
 
