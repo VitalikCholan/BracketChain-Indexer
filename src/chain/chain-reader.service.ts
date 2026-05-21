@@ -35,7 +35,9 @@ export class ChainReaderService implements OnModuleInit {
     this.coder = new BorshAccountsCoder(idlJson as Idl);
     this.programId = new PublicKey(programIdStr);
 
-    this.logger.log(`ChainReader initialized — rpc=${maskUrl(rpcUrl)}, programId=${programIdStr}`);
+    this.logger.log(
+      `ChainReader initialized — rpc=${maskUrl(rpcUrl)}, programId=${programIdStr}`,
+    );
   }
 
   /**
@@ -63,7 +65,10 @@ export class ChainReaderService implements OnModuleInit {
     const out: Array<DecodedTournament | null> = [];
     for (let i = 0; i < pdas.length; i += CHUNK) {
       const slice = pdas.slice(i, i + CHUNK);
-      const infos = await this.connection.getMultipleAccountsInfo(slice, 'confirmed');
+      const infos = await this.connection.getMultipleAccountsInfo(
+        slice,
+        'confirmed',
+      );
       for (let j = 0; j < slice.length; j++) {
         const info = infos[j];
         if (!info?.data) {
@@ -86,7 +91,7 @@ export class ChainReaderService implements OnModuleInit {
           // map miss that broke every chain read since the cron shipped.
           const decoded = this.coder.decode<DecodedTournament>(
             'Tournament',
-            info.data as Buffer,
+            info.data,
           );
           out.push(decoded);
         } catch (err) {
@@ -111,7 +116,7 @@ export interface DecodedTournament {
   name: string;
   tokenMint: PublicKey;
   vault: PublicKey;
-  entryFee: { toString(): string };       // BN
+  entryFee: { toString(): string }; // BN
   organizerDeposit: { toString(): string }; // BN
   organizerDepositRefunded: boolean;
   maxParticipants: number;

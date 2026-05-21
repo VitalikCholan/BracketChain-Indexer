@@ -4,10 +4,7 @@ import { PublicKey } from '@solana/web3.js';
 
 import { PrismaService } from '../prisma.service';
 import { ChainReaderService } from '../chain/chain-reader.service';
-import {
-  PayoutPreset,
-  TournamentStatus,
-} from '../generated/prisma';
+import { PayoutPreset, TournamentStatus } from '../generated/prisma';
 
 /**
  * Phase 5.4: reconciliation cron.
@@ -79,7 +76,10 @@ export class ReconciliationService {
 
   // ── implementation ─────────────────────────────────────────────────────────
 
-  private async runReconciliation(): Promise<{ scanned: number; touched: number }> {
+  private async runReconciliation(): Promise<{
+    scanned: number;
+    touched: number;
+  }> {
     // Scope: every non-terminal tournament + completed/cancelled within the
     // last hour (catches late-arriving Cancelled webhook). We bound at 50
     // rows per pass to keep a single getMultipleAccountsInfo within the
@@ -129,9 +129,9 @@ export class ReconciliationService {
     let touched = 0;
 
     for (let i = 0; i < candidates.length; i++) {
-      const dbRow = candidates[i]!;
+      const dbRow = candidates[i];
       const chain = chainAccounts[i];
-      if (!chain) continue;  // account missing or decode failed — skip
+      if (!chain) continue; // account missing or decode failed — skip
 
       const chainStatus = anchorEnumToDbStatus(chain.status);
       const chainChampion = chain.champion.equals(PublicKey.default)
@@ -185,12 +185,12 @@ const ENUM_TO_STATUS: Record<string, TournamentStatus> = {
   cancelled: TournamentStatus.Cancelled,
 };
 
-function anchorEnumToDbStatus(
-  variant: { [k: string]: object },
-): TournamentStatus | null {
+function anchorEnumToDbStatus(variant: {
+  [k: string]: object;
+}): TournamentStatus | null {
   const keys = Object.keys(variant);
   if (keys.length !== 1) return null;
-  return ENUM_TO_STATUS[keys[0]!] ?? null;
+  return ENUM_TO_STATUS[keys[0]] ?? null;
 }
 
 // Unused but kept exported for symmetry with handler — Phase 5.5 may want
