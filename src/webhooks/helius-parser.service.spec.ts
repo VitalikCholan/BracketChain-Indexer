@@ -1,5 +1,14 @@
 import { HeliusParserService } from './helius-parser.service';
 import type { HeliusTransaction } from './dto/helius-payload.dto';
+import type {
+  MatchReportedEvent,
+  ParticipantRegisteredEvent,
+  RefundIssuedEvent,
+  TournamentCancelledEvent,
+  TournamentCompletedEvent,
+  TournamentCreatedEvent,
+  TournamentStartedEvent,
+} from './event-types';
 
 const PROGRAM_ID = 'AuXJKpuZtkegs2ZSgopgckhN7Ev8bUz4zBc238LD2F1';
 const TOURNAMENT_PDA = 'Tour1111111111111111111111111111111111111111';
@@ -73,39 +82,36 @@ function makeService(prisma: PrismaMock): HeliusParserService {
  */
 type ParserPrivate = {
   handleTournamentCreated: (
-    data: Record<string, unknown>,
+    data: TournamentCreatedEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
   handleParticipantRegistered: (
-    data: Record<string, unknown>,
+    data: ParticipantRegisteredEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
   handleTournamentStarted: (
-    data: Record<string, unknown>,
+    data: TournamentStartedEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
   handleMatchReported: (
-    data: Record<string, unknown>,
+    data: MatchReportedEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
   handleTournamentCompleted: (
-    data: Record<string, unknown>,
+    data: TournamentCompletedEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
   handleTournamentCancelled: (
-    data: Record<string, unknown>,
+    data: TournamentCancelledEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
-  handleRefundIssued: (
-    data: Record<string, unknown>,
-    sig: string,
-  ) => Promise<void>;
+  handleRefundIssued: (data: RefundIssuedEvent, sig: string) => Promise<void>;
 };
 
 function asPrivate(service: HeliusParserService): ParserPrivate {
@@ -268,8 +274,14 @@ describe('HeliusParserService', () => {
   // ── TournamentStarted ──────────────────────────────────────────────────────
 
   describe('TournamentStarted', () => {
-    const data = {
+    // Handler only reads `tournament`; bracket_size/participant_count/seed_hash
+    // are emitted by the program but unused by the lean indexer (kept in the
+    // event for downstream consumers). Stubs match what BorshCoder would yield.
+    const data: TournamentStartedEvent = {
       tournament: TOURNAMENT_PDA,
+      bracket_size: 8,
+      participant_count: 8,
+      seed_hash: new Array<number>(32).fill(0),
       started_at: TX_TIMESTAMP_SEC,
     };
 
@@ -490,7 +502,13 @@ describe('HeliusParserService', () => {
   // ── TournamentCancelled ────────────────────────────────────────────────────
 
   describe('TournamentCancelled', () => {
-    const data = { tournament: TOURNAMENT_PDA };
+    // Handler only reads `tournament`; authority/cancelled_at are emitted but
+    // ignored by the lean indexer. Stubs reflect the BorshCoder shape.
+    const data: TournamentCancelledEvent = {
+      tournament: TOURNAMENT_PDA,
+      authority: ORGANIZER,
+      cancelled_at: TX_TIMESTAMP_SEC,
+    };
 
     it('happy-path → flips status to Cancelled', async () => {
       await asPrivate(service).handleTournamentCancelled(

@@ -13,27 +13,27 @@
 
 ### Section 2 — Codama parser migration (Stage 2)
 
-- [ ] **Крок 24.** Stage 2.A — `src/webhooks/event-types.ts` з hand-typed interfaces для 7 events. Matches `BorshCoder` output shapes. (Codama renderers-js@2.x не emit event decoders → Option A: BorshCoder для events + Codama для accounts/instructions.)
-- [ ] **Крок 25.** Stage 2.B — переписати `src/webhooks/helius-parser.service.ts`: 7 handlers з `Record<string, unknown>` → specific event interfaces. Dispatch через per-case type narrowing. Acceptance: `pnpm typecheck` clean.
-- [ ] **Крок 26.** Stage 2.C — fix `scripts/test-parser.mjs` (Task #20): захопити current post-Phase-2.5/2.6 webhook payload з devnet, замінити stale hardcoded payload.
+- [x] **Крок 24.** Stage 2.A — `src/webhooks/event-types.ts` з hand-typed interfaces для 7 events. Matches `BorshCoder` output shapes. (Codama renderers-js@2.x не emit event decoders → Option A: BorshCoder для events + Codama для accounts/instructions.)
+- [x] **Крок 25.** Stage 2.B — переписати `src/webhooks/helius-parser.service.ts`: 7 handlers з `Record<string, unknown>` → specific event interfaces. Dispatch через per-case type narrowing. Acceptance: `pnpm typecheck` clean.
+- [x] **Крок 26.** Stage 2.C — fix `scripts/test-parser.mjs` (Task #20): захопити current post-Phase-2.5/2.6 webhook payload з devnet, замінити stale hardcoded payload. _(Already done in `8086ff2` — script now fetches `logMessages` via RPC instead of hardcoded payload.)_
 
 ### Section 3.1 — Webhook HMAC authentication ⚠️ Security gap
 
-- [ ] **Крок 7.** `pnpm install` + `npm install @types/crypto-js` (якщо потрібно); перевірити NestJS raw-body middleware.
-- [ ] **Крок 8.** `src/webhooks/helius-hmac.guard.ts` — NestJS `CanActivate`. Логіка: `X-Helius-Signature` → HMAC-SHA256(raw_body, secret) → `crypto.timingSafeEqual`.
-- [ ] **Крок 9.** `@UseGuards(HeliusHmacGuard)` в `webhooks.controller.ts` + `bodyParser.raw({ type: 'application/json' })` в `main.ts`.
-- [ ] **Крок 10.** Uncomment `HELIUS_WEBHOOK_SECRET=""` в `.env.example`; generate `openssl rand -hex 32`; Railway env var; Helius dashboard webhook config. Acceptance: `curl POST` без signature → 401; з valid HMAC → 200.
+- [x] **Крок 7.** `pnpm install` + `npm install @types/crypto-js` (якщо потрібно); перевірити NestJS raw-body middleware.
+- [x] **Крок 8.** `src/webhooks/helius-hmac.guard.ts` — NestJS `CanActivate`. Логіка: `X-Helius-Signature` → HMAC-SHA256(raw_body, secret) → `crypto.timingSafeEqual`.
+- [x] **Крок 9.** `@UseGuards(HeliusHmacGuard)` в `webhooks.controller.ts` + `bodyParser.raw({ type: 'application/json' })` в `main.ts`.
+- [x] **Крок 10.** Uncomment `HELIUS_WEBHOOK_SECRET=""` в `.env.example`; generate `openssl rand -hex 32`; Railway env var; Helius dashboard webhook config. Acceptance: `curl POST` без signature → 401; з valid HMAC → 200.
 
 ### Section 3.2 — Test coverage
 
-- [ ] **Крок 27.** `src/webhooks/helius-parser.service.spec.ts` — 1 happy-path + 1 re-delivery test на кожне з 7 events. Mock Prisma через `jest-mock-extended` `DeepMockProxy<PrismaClient>`.
-- [ ] **Крок 28.** `src/reconciliation/reconciliation.service.spec.ts` — mock `ChainReaderService.fetchTournament` повертає status/champion/slot drift cases. Acceptance: `pnpm test` зелений; runtime <10s.
+- [x] **Крок 27.** `src/webhooks/helius-parser.service.spec.ts` — 1 happy-path + 1 re-delivery test на кожне з 7 events. Mock Prisma через `jest-mock-extended` `DeepMockProxy<PrismaClient>`. _(Implemented with a hand-rolled Prisma mock — 41 tests pass, ~1.5s runtime.)_
+- [x] **Крок 28.** `src/reconciliation/reconciliation.service.spec.ts` — mock `ChainReaderService.fetchTournament` повертає status/champion/slot drift cases. Acceptance: `pnpm test` зелений; runtime <10s.
 
 ### Section 3.3 — Name-check endpoint
 
-- [ ] **Крок 11.** `src/tournaments/dto/check-name.dto.ts` — валідація organizer + name query params.
-- [ ] **Крок 12.** `GET /tournaments/check-name?organizer=&name=` в `tournaments.controller.ts`. Handler через `prisma.tournament.findUnique({ where: { organizer_name: { organizer, name } } })`. Response: `{ taken: boolean, address?: string }`.
-- [ ] **Крок 13.** Smoke-test локально + проти Railway. Free name → `{ taken: false }`; taken → `{ taken: true, address: "..." }`.
+- [x] **Крок 11.** `src/tournaments/dto/check-name.dto.ts` — валідація organizer + name query params.
+- [x] **Крок 12.** `GET /tournaments/check-name?organizer=&name=` в `tournaments.controller.ts`. Handler через `prisma.tournament.findUnique({ where: { organizer_name: { organizer, name } } })`. Response: `{ taken: boolean, address?: string }`.
+- [x] **Крок 13.** Smoke-test локально + проти Railway. Free name → `{ taken: false }`; taken → `{ taken: true, address: "..." }`.
 
 ---
 

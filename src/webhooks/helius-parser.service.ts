@@ -15,10 +15,20 @@ import type {
   HeliusTransaction,
   HeliusWebhookBody,
 } from './dto/helius-payload.dto';
+import type {
+  BracketChainEvent,
+  MatchReportedEvent,
+  ParticipantRegisteredEvent,
+  RefundIssuedEvent,
+  TournamentCancelledEvent,
+  TournamentCompletedEvent,
+  TournamentCreatedEvent,
+  TournamentStartedEvent,
+} from './event-types';
 
 import idlJson from '../idl/bracket_chain.json';
 
-interface ParsedEvent {
+interface ParsedAnchorEvent {
   name: string;
   data: Record<string, unknown>;
 }
@@ -88,8 +98,18 @@ export class HeliusParserService implements OnModuleInit {
       return 0;
     }
 
-    const events = Array.from(this.parser.parseLogs(logs)) as ParsedEvent[];
-    if (events.length === 0) return 0;
+    const rawEvents = Array.from(
+      this.parser.parseLogs(logs),
+    ) as ParsedAnchorEvent[];
+    if (rawEvents.length === 0) return 0;
+
+    // Cast to the discriminated union so the per-case `switch` narrows
+    // `evt.data` to the matching event shape. BorshCoder enforces the field
+    // layout via the IDL — unknown event names fall through to the default
+    // branch and are ignored. The cast is technically unsound only if a third
+    // party emits a log with the same Anchor-event discriminator, which the
+    // EventParser scopes out by program ID.
+    const events = rawEvents as unknown as BracketChainEvent[];
 
     let handled = 0;
     for (const evt of events) {
@@ -133,7 +153,7 @@ export class HeliusParserService implements OnModuleInit {
   // ── handlers ──────────────────────────────────────────────────────────────
 
   private async handleTournamentCreated(
-    data: Record<string, unknown>,
+    data: TournamentCreatedEvent,
     tx: HeliusTransaction,
     signature: string,
   ): Promise<void> {
@@ -210,7 +230,7 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async handleTournamentCompleted(
-    data: Record<string, unknown>,
+    data: TournamentCompletedEvent,
     tx: HeliusTransaction,
     signature: string,
   ): Promise<void> {
@@ -324,7 +344,7 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async handleParticipantRegistered(
-    data: Record<string, unknown>,
+    data: ParticipantRegisteredEvent,
     tx: HeliusTransaction,
     signature: string,
   ): Promise<void> {
@@ -378,7 +398,7 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async handleTournamentStarted(
-    data: Record<string, unknown>,
+    data: TournamentStartedEvent,
     tx: HeliusTransaction,
     signature: string,
   ): Promise<void> {
@@ -403,7 +423,7 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async handleMatchReported(
-    data: Record<string, unknown>,
+    data: MatchReportedEvent,
     tx: HeliusTransaction,
     signature: string,
   ): Promise<void> {
@@ -463,7 +483,7 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async handleTournamentCancelled(
-    data: Record<string, unknown>,
+    data: TournamentCancelledEvent,
     tx: HeliusTransaction,
     signature: string,
   ): Promise<void> {
@@ -481,7 +501,7 @@ export class HeliusParserService implements OnModuleInit {
   }
 
   private async handleRefundIssued(
-    data: Record<string, unknown>,
+    data: RefundIssuedEvent,
     signature: string,
   ): Promise<void> {
     const tournamentAddress = pubkeyToString(data.tournament);
