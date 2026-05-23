@@ -6,10 +6,12 @@ import { HealthController } from './health/health.controller';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
+import { KeychainModule } from './keys/keychain.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    KeychainModule,
     TournamentsModule,
     WebhooksModule,
     ReconciliationModule,
