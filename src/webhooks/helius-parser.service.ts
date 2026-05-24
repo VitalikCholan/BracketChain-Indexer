@@ -48,8 +48,20 @@ export class HeliusParserService implements OnModuleInit {
   /// (legacy: USDC_MINT). Skip transfers in other mints when narrowing the
   /// indexer to a single token. Leave unset for multi-token indexing.
   private tokenMintFilter: string | null = null;
+  /// Events are stamped with `event_version` as their first field (program
+  /// constant `EVENT_VERSION_V1`). The parser rejects any other version to
+  /// prevent silent Borsh mis-decode after a future event-layout change (C10).
+  private static readonly EVENT_VERSION_V1 = 1;
+  /// Count of events skipped for a mismatched `event_version` — surfaced at
+  /// `/health` as `eventVersion.unknownCount` (R1 silent-drift guard metric).
+  private unknownEventVersionCount = 0;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Number of events rejected so far for an unrecognized `event_version`. */
+  getUnknownEventVersionCount(): number {
+    return this.unknownEventVersionCount;
+  }
 
   onModuleInit() {
     const programIdStr = process.env.PROGRAM_ID;
@@ -113,6 +125,18 @@ export class HeliusParserService implements OnModuleInit {
 
     let handled = 0;
     for (const evt of events) {
+      // C10 version guard: reject events whose first field isn't the version
+      // this parser was built for — silent decode of a changed layout is worse
+      // than a dropped event. Emits the `unknownEventVersion` metric.
+      const version = (evt.data as { event_version?: number }).event_version;
+      if (version !== HeliusParserService.EVENT_VERSION_V1) {
+        this.unknownEventVersionCount++;
+        this.logger.warn(
+          `unknownEventVersion: skipping ${evt.name} with event_version=${String(version)} ` +
+            `(expected ${HeliusParserService.EVENT_VERSION_V1}); total=${this.unknownEventVersionCount}`,
+        );
+        continue;
+      }
       switch (evt.name) {
         case 'TournamentCreated':
           await this.handleTournamentCreated(evt.data, tx, signature);

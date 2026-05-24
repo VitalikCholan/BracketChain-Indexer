@@ -2,12 +2,14 @@ import { Controller, Get } from '@nestjs/common';
 
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
 import { SwitchboardCostService } from '../switchboard/switchboard-cost.service';
+import { HeliusParserService } from '../webhooks/helius-parser.service';
 
 @Controller('health')
 export class HealthController {
   constructor(
     private readonly reconciliation: ReconciliationService,
     private readonly switchboardCost: SwitchboardCostService,
+    private readonly parser: HeliusParserService,
   ) {}
 
   /**
@@ -28,6 +30,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       reconciliation: this.reconciliation.getStatus(),
       switchboardCost: this.switchboardCost.getSnapshot(),
+      eventVersion: { unknownCount: this.parser.getUnknownEventVersionCount() },
     };
   }
 }

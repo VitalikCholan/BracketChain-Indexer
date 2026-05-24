@@ -43,7 +43,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
-    "@solana/kit": "^5.5.1",
+    "@solana/kit": "^5",
     "@solana/web3.js": "^1",
     "@switchboard-xyz/on-demand": "^3.10.2",
     "@types/bn.js": "^5.2.0",
