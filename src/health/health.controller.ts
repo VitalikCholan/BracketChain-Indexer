@@ -1,10 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 
 import { ReconciliationService } from '../reconciliation/reconciliation.service';
+import { SwitchboardCostService } from '../switchboard/switchboard-cost.service';
 
 @Controller('health')
 export class HealthController {
-  constructor(private readonly reconciliation: ReconciliationService) {}
+  constructor(
+    private readonly reconciliation: ReconciliationService,
+    private readonly switchboardCost: SwitchboardCostService,
+  ) {}
 
   /**
    * GET /health — liveness + reconciliation cron status.
@@ -23,6 +27,7 @@ export class HealthController {
       ok: true,
       timestamp: new Date().toISOString(),
       reconciliation: this.reconciliation.getStatus(),
+      switchboardCost: this.switchboardCost.getSnapshot(),
     };
   }
 }
