@@ -54,6 +54,11 @@ export class ChainReaderService implements OnModuleInit {
    * couldn't be decoded. One getMultipleAccountsInfo RPC for up to 100
    * pubkeys (Solana's per-call cap).
    */
+  /** Current confirmed slot — used by the VRF-reveal cron's commit-maturity gate. */
+  async getCurrentSlot(): Promise<number> {
+    return this.connection.getSlot('confirmed');
+  }
+
   async fetchTournaments(
     pdas: PublicKey[],
   ): Promise<Array<DecodedTournament | null>> {
@@ -132,6 +137,12 @@ export interface DecodedTournament {
   status: { [variant: string]: object };
   payoutPreset: { [variant: string]: object };
   champion: PublicKey;
+  /// VRF (Stage B). `vrfRandomnessAccount` is `Pubkey::default()` (all-1s
+  /// base58) when no Switchboard randomness is bound; `seedRevealed` flips once
+  /// `reveal_seed` lands. Read by the B-16 vrf-reveal cron.
+  vrfRandomnessAccount: PublicKey;
+  vrfCommitSlot: { toString(): string }; // BN (u64)
+  seedRevealed: boolean;
 }
 
 function maskUrl(url: string): string {

@@ -9,6 +9,7 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { KeychainModule } from './keys/keychain.module';
 import { SwitchboardModule } from './switchboard/switchboard.module';
 import { IdentityModule } from './identity/identity.module';
+import { DriversModule } from './drivers/drivers.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { IdentityModule } from './identity/identity.module';
     TournamentsModule,
     WebhooksModule,
     ReconciliationModule,
+    DriversModule,
   ],
   controllers: [HealthController],
   providers: [PrismaService],
