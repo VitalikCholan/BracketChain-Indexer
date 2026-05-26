@@ -8,6 +8,7 @@ import {
   MatchStatus,
   PayoutKind,
   PayoutPreset,
+  ProposalSource,
   TournamentStatus,
 } from '../generated/prisma';
 import type {
@@ -17,9 +18,13 @@ import type {
 } from './dto/helius-payload.dto';
 import type {
   BracketChainEvent,
+  DisputeResolvedEvent,
   MatchReportedEvent,
   ParticipantRegisteredEvent,
   RefundIssuedEvent,
+  ResultClaimedEvent,
+  ResultDisputedEvent,
+  ResultProposedEvent,
   TournamentCancelledEvent,
   TournamentCompletedEvent,
   TournamentCreatedEvent,
@@ -33,10 +38,35 @@ interface ParsedAnchorEvent {
   data: Record<string, unknown>;
 }
 
+/// Subset of Match columns the Stage B settlement handlers write. Spread into
+/// both the create and update branch of the envelope upsert.
+interface MatchEnvelopeFields {
+  proposalSource?: ProposalSource;
+  proposer?: string;
+  proposedWinner?: string;
+  proposedAt?: Date;
+  claimDeadline?: Date;
+  disputed?: boolean;
+  disputeReason?: number;
+  winner?: string;
+  reportedAt?: Date;
+  reportedTxSig?: string;
+}
+
 const PAYOUT_PRESET_BY_INDEX: Record<number, PayoutPreset> = {
   0: PayoutPreset.WinnerTakesAll,
   1: PayoutPreset.Standard,
   2: PayoutPreset.Deep,
+};
+
+/// On-chain `ProposalSource` discriminant → Prisma enum. None=0 never appears
+/// in a ResultProposed event (a live proposal is always Player/Oracle/…), but
+/// the map is total for safety.
+const PROPOSAL_SOURCE_BY_INDEX: Record<number, ProposalSource> = {
+  0: ProposalSource.None,
+  1: ProposalSource.Player,
+  2: ProposalSource.Oracle,
+  3: ProposalSource.GameServer,
 };
 
 @Injectable()
@@ -164,6 +194,22 @@ export class HeliusParserService implements OnModuleInit {
           break;
         case 'RefundIssued':
           await this.handleRefundIssued(evt.data, signature);
+          handled++;
+          break;
+        case 'ResultProposed':
+          await this.handleResultProposed(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'ResultDisputed':
+          await this.handleResultDisputed(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'ResultClaimed':
+          await this.handleResultClaimed(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'DisputeResolved':
+          await this.handleDisputeResolved(evt.data, tx, signature);
           handled++;
           break;
         default:
@@ -452,6 +498,9 @@ export class HeliusParserService implements OnModuleInit {
     signature: string,
   ): Promise<void> {
     const tournamentAddress = pubkeyToString(data.tournament);
+    // `bracket` added to the event in Stage B (C9); absent on pre-upgrade
+    // replays → default 0 (single-elim).
+    const bracket = data.bracket !== undefined ? toNumber(data.bracket) : 0;
     const round = toNumber(data.round);
     const matchIndex = toNumber(data.match_index);
     const winner = pubkeyToString(data.winner);
@@ -477,14 +526,16 @@ export class HeliusParserService implements OnModuleInit {
     // For now, frontend reads pending matches from chain via SWR fallback.
     await this.prisma.match.upsert({
       where: {
-        tournamentAddress_round_matchIndex: {
+        tournamentAddress_bracket_round_matchIndex: {
           tournamentAddress,
+          bracket,
           round,
           matchIndex,
         },
       },
       create: {
         tournamentAddress,
+        bracket,
         round,
         matchIndex,
         winner,
@@ -502,7 +553,7 @@ export class HeliusParserService implements OnModuleInit {
       },
     });
     this.logger.log(
-      `matchReported ${tournamentAddress} r${round}m${matchIndex} → winner=${winner}`,
+      `matchReported ${tournamentAddress} b${bracket}r${round}m${matchIndex} → winner=${winner}`,
     );
   }
 
@@ -589,6 +640,228 @@ export class HeliusParserService implements OnModuleInit {
     this.logger.log(
       `refundIssued ${tournamentAddress} → ${recipient} (${amount}, kind=${kind})`,
     );
+  }
+
+  // ── Stage B settlement-envelope handlers (B-14) ───────────────────────────
+  // Each writes the on-chain MatchNode envelope onto the read-cache Match row
+  // and derives the PRD §5.2 UI status. No notifications / WS: per the product
+  // architecture (Product Definition §4.1) live UI updates ride Solana account
+  // subscriptions in the SDK — "no custom WebSocket server needed" — and
+  // browser-push notifications are a V2 concern.
+
+  /**
+   * Upsert the settlement envelope onto a Match row, creating a bare row when
+   * the match wasn't seeded yet (lean indexer — pending matches live only on
+   * chain until a finalize/propose event names them). Never downgrades a
+   * Completed match: Helius may redeliver a stale propose/dispute webhook after
+   * the match already finalized. Returns false (and logs) when the parent
+   * tournament isn't in the DB yet — Phase 5.4 reconciliation backfills it.
+   */
+  private async applyMatchEnvelope(args: {
+    tournamentAddress: string;
+    bracket: number;
+    round: number;
+    matchIndex: number;
+    desiredStatus: MatchStatus;
+    envelope: MatchEnvelopeFields;
+    chainSlotAtWrite: bigint;
+  }): Promise<boolean> {
+    const { tournamentAddress, bracket, round, matchIndex } = args;
+
+    const tournamentExists = await this.prisma.tournament.findUnique({
+      where: { address: tournamentAddress },
+      select: { address: true },
+    });
+    if (!tournamentExists) {
+      this.logger.warn(
+        `match envelope for unknown tournament ${tournamentAddress} — skipping (will be backfilled by reconciliation)`,
+      );
+      return false;
+    }
+
+    const where = {
+      tournamentAddress_bracket_round_matchIndex: {
+        tournamentAddress,
+        bracket,
+        round,
+        matchIndex,
+      },
+    };
+    const existing = await this.prisma.match.findUnique({
+      where,
+      select: { status: true },
+    });
+    // Terminal-status guard: once Completed, a redelivered earlier-stage event
+    // must not move the row back to PendingConfirmation / Disputed.
+    const status =
+      existing?.status === MatchStatus.Completed
+        ? MatchStatus.Completed
+        : args.desiredStatus;
+
+    await this.prisma.match.upsert({
+      where,
+      create: {
+        tournamentAddress,
+        bracket,
+        round,
+        matchIndex,
+        status,
+        chainSlotAtWrite: args.chainSlotAtWrite,
+        ...args.envelope,
+      },
+      update: {
+        status,
+        chainSlotAtWrite: args.chainSlotAtWrite,
+        ...args.envelope,
+      },
+    });
+    return true;
+  }
+
+  private async handleResultProposed(
+    data: ResultProposedEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const sourceIndex = toNumber(data.source);
+    const proposalSource = PROPOSAL_SOURCE_BY_INDEX[sourceIndex];
+    if (!proposalSource || proposalSource === ProposalSource.None) {
+      throw new Error(
+        `ResultProposed with invalid source=${sourceIndex} in tx ${signature}`,
+      );
+    }
+    const proposer = pubkeyToString(data.proposer);
+    const proposedWinner = pubkeyToString(data.proposed_winner);
+    const proposedAt = new Date(toNumber(data.proposed_at) * 1000);
+    const claimDeadline = new Date(toNumber(data.claim_deadline) * 1000);
+
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.PendingConfirmation,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: {
+        proposalSource,
+        proposer,
+        proposedWinner,
+        proposedAt,
+        claimDeadline,
+        disputed: false,
+      },
+    });
+    if (ok) {
+      this.logger.log(
+        `resultProposed ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `source=${proposalSource} proposer=${proposer} → ${proposedWinner}`,
+      );
+    }
+  }
+
+  private async handleResultDisputed(
+    data: ResultDisputedEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const disputeReason = toNumber(data.dispute_reason);
+    // `claim_deadline` is re-armed to the +24h force-claim window on dispute.
+    const claimDeadline = new Date(toNumber(data.force_claim_deadline) * 1000);
+
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.Disputed,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: { disputed: true, disputeReason, claimDeadline },
+    });
+    if (ok) {
+      this.logger.log(
+        `resultDisputed ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `reason=${disputeReason} (signature=${signature})`,
+      );
+    }
+  }
+
+  private async handleResultClaimed(
+    data: ResultClaimedEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const winner = pubkeyToString(data.winner);
+    const forced = data.forced === true;
+    const claimedAt = new Date(toNumber(data.claimed_at) * 1000);
+
+    // Finalize: same tx also emits MatchReported (which sets winner+Completed).
+    // We set Completed too so ordering within the batch is irrelevant.
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.Completed,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: {
+        winner,
+        reportedAt: claimedAt,
+        reportedTxSig: signature,
+      },
+    });
+    if (ok) {
+      this.logger.log(
+        `resultClaimed ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `winner=${winner} forced=${forced}`,
+      );
+    }
+  }
+
+  private async handleDisputeResolved(
+    data: DisputeResolvedEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const arbitrator = pubkeyToString(data.arbitrator);
+    const winner = pubkeyToString(data.winner);
+    const resolvedAt = new Date(toNumber(data.resolved_at) * 1000);
+
+    // Organizer/arbitrator adjudication. Same tx emits MatchReported too.
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.Completed,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: {
+        winner,
+        reportedAt: resolvedAt,
+        reportedTxSig: signature,
+      },
+    });
+    if (ok) {
+      this.logger.log(
+        `disputeResolved ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `arbitrator=${arbitrator} → winner=${winner}`,
+      );
+    }
   }
 }
 

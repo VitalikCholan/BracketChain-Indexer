@@ -61,6 +61,16 @@ model Participant {
   registeredTxSig   String
   /// Phase 5.1 freshness watermark — slot of the most recent webhook write.
   chainSlotAtWrite  BigInt     @default(0)
+  /// B-14 (Stage B): per-participant record + game identity. Columns are
+  /// additive now; no current event carries these values (MatchReported only
+  /// names the winner, ParticipantRegistered omits identity_hash), so they are
+  /// populated by the Phase 5.4 reconciliation cron reading MatchNode /
+  /// Participant accounts from chain. Default 0 / null until then.
+  wins              Int        @default(0)
+  losses            Int        @default(0)
+  pointsFor         Int        @default(0)
+  pointsAgainst     Int        @default(0)
+  identityHash      String?
 
   @@unique([tournamentAddress, wallet])
   @@index([tournamentAddress])
@@ -79,6 +89,10 @@ model Match {
   id                String      @id @default(uuid())
   tournamentAddress String
   tournament        Tournament  @relation(fields: [tournamentAddress], references: [address], onDelete: Cascade)
+  /// B-14 (C9): bracket lane — 0 = single-elim (V1), 1/2 = winners/losers/grand
+  /// for future double-elim. Part of the on-chain MatchNode PDA seed, so it is
+  /// part of this row's natural key.
+  bracket           Int         @default(0)
   round             Int
   matchIndex        Int
   playerA           String?
@@ -89,15 +103,46 @@ model Match {
   reportedAt        DateTime?
   reportedTxSig     String?
   chainSlotAtWrite  BigInt      @default(0)
+  /// B-14 (Stage B): player-reported / oracle settlement envelope, mirroring
+  /// the on-chain MatchNode fields. `status` carries the derived UI state
+  /// (PendingConfirmation / Disputed / Completed) per PRD §5.2; these columns
+  /// hold the underlying envelope the frontend reads to render confirm/dispute
+  /// panels (B-17) and the auto-claim/vrf crons scan (B-15/B-16).
+  proposalSource    ProposalSource @default(None)
+  proposer          String?
+  proposedWinner    String?
+  proposedAt        DateTime?
+  /// Deadline after which the result may be permissionlessly finalized. On
+  /// dispute it is re-armed to the +24h force-claim window.
+  claimDeadline     DateTime?
+  disputed          Boolean     @default(false)
+  /// Raw `dispute_reason` code (u8) from the ResultDisputed event.
+  disputeReason     Int?
 
-  @@unique([tournamentAddress, round, matchIndex])
+  @@unique([tournamentAddress, bracket, round, matchIndex])
   @@index([tournamentAddress])
 }
 
+/// Match lifecycle. Pending/Active/Completed come straight from chain; the
+/// intermediate PendingConfirmation / Disputed states are derived by the
+/// parser from the settlement envelope (a proposal is live, or a dispute is
+/// open) — the on-chain program keeps status Active until finalize and tracks
+/// the rest via the envelope. PRD §5.2 names all five.
 enum MatchStatus {
   Pending
   Active
+  PendingConfirmation
+  Disputed
   Completed
+}
+
+/// Source of a match-result proposal. Mirrors the on-chain `ProposalSource`
+/// enum (None=0, Player=1, Oracle=2, GameServer=3).
+enum ProposalSource {
+  None
+  Player
+  Oracle
+  GameServer
 }
 
 model Payout {

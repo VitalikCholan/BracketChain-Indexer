@@ -1,5 +1,5 @@
 {
-  "address": "AuXJKpuZtkegs2ZSgopgckhN7Ev8bUz4zBc238LD2F1",
+  "address": "3YpkUKBh8288XN2dCKSwBnEdyc5UozSJ19A1ZCLpUZsZ",
   "metadata": {
     "name": "bracket_chain",
     "version": "0.1.0",
@@ -101,6 +101,404 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "claim_result",
+      "docs": [
+        "Permissionless: finalize an undisputed proposal after its dispute",
+        "window. Supply `placements` + payout ATAs when it is the final match."
+      ],
+      "discriminator": [
+        249,
+        224,
+        240,
+        229,
+        107,
+        95,
+        235,
+        65
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "next_match",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "participant_a",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_a",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "participant_b",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_b",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer_token_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "placements",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "confirm_result",
+      "docs": [
+        "The counterparty accepts the proposal, finalizing the match. Supply",
+        "`placements` + payout ATAs (remaining_accounts) when it is the final."
+      ],
+      "discriminator": [
+        221,
+        146,
+        199,
+        188,
+        131,
+        67,
+        148,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "counterparty",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "next_match",
+          "docs": [
+            "Required for non-final matches; pass `None` when finalizing the final."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "participant_a",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_a",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "participant_b",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_b",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer_token_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "placements",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
     },
     {
       "name": "create_tournament",
@@ -268,6 +666,288 @@
         {
           "name": "organizer_deposit",
           "type": "u64"
+        },
+        {
+          "name": "game",
+          "type": {
+            "defined": {
+              "name": "SupportedGame"
+            }
+          }
+        },
+        {
+          "name": "settlement_mode",
+          "type": {
+            "defined": {
+              "name": "SettlementMode"
+            }
+          }
+        },
+        {
+          "name": "dispute_window_secs",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "dispute_result",
+      "docs": [
+        "The counterparty rejects the proposal, escalating to the organizer."
+      ],
+      "discriminator": [
+        123,
+        38,
+        138,
+        180,
+        219,
+        102,
+        23,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "disputer",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "dispute_reason",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "force_claim_disputed",
+      "docs": [
+        "Permissionless backstop: finalize a disputed match the organizer never",
+        "resolved, 24h after the dispute."
+      ],
+      "discriminator": [
+        167,
+        247,
+        131,
+        146,
+        127,
+        142,
+        78,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "next_match",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "participant_a",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_a",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "participant_b",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_b",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer_token_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "placements",
+          "type": {
+            "vec": "pubkey"
+          }
         }
       ]
     },
@@ -391,6 +1071,33 @@
           }
         },
         {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "participant",
           "writable": true,
           "pda": {
@@ -449,6 +1156,15 @@
           }
         },
         {
+          "name": "game_identity_attestation",
+          "docs": [
+            "credential + schema match `protocol_config`, nonce == player, not",
+            "expired). Required when `tournament.game != Manual`; pass `None` for",
+            "Manual tournaments."
+          ],
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -458,6 +1174,135 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "migrate_v1_tournament",
+      "docs": [
+        "Devnet upgrade-only: grow a pre-V1 Tournament account to the V1 layout.",
+        "Registration-phase tournaments only (see instruction docs)."
+      ],
+      "discriminator": [
+        219,
+        127,
+        239,
+        216,
+        243,
+        241,
+        10,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tournament",
+          "docs": [
+            "is shorter than the current `INIT_SPACE` and would fail Anchor's",
+            "deserialization. Validated below by program ownership + discriminator."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_result",
+      "docs": [
+        "A match player records the result they claim, opening the dispute",
+        "window. Non-`OrganizerOnly` tournaments only."
+      ],
+      "discriminator": [
+        7,
+        96,
+        132,
+        38,
+        128,
+        145,
+        133,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "proposer",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "proposed_winner",
+          "type": "pubkey"
+        }
+      ]
     },
     {
       "name": "report_result",
@@ -572,6 +1417,18 @@
           }
         },
         {
+          "name": "organizer_token_account",
+          "docs": [
+            "Organizer's ATA in the tournament's token mint. Required on final-match",
+            "when `tournament.organizer_deposit > 0` and the deposit has not been",
+            "refunded yet (Variant A — deposit is excluded from the prize-pool",
+            "basis). Pass `None` for non-final reports or when the deposit is `0`.",
+            "Mint + owner are validated by Anchor (constraints auto-skip when None)."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -585,6 +1442,400 @@
           "name": "placements",
           "type": {
             "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "request_seed",
+      "docs": [
+        "Bind a committed Switchboard randomness account to the tournament.",
+        "Opt-in; once bound, `start_tournament` requires the seed to be revealed."
+      ],
+      "discriminator": [
+        162,
+        96,
+        174,
+        50,
+        178,
+        77,
+        115,
+        152
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "randomness_account",
+          "docs": [
+            "program and parse as a `RandomnessAccountData`."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "resolve_dispute",
+      "docs": [
+        "The organizer (arbitrator) settles a disputed match."
+      ],
+      "discriminator": [
+        231,
+        6,
+        202,
+        6,
+        96,
+        103,
+        12,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "next_match",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "participant_a",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_a",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "participant_b",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_b",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer_token_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "winner",
+          "type": "pubkey"
+        },
+        {
+          "name": "placements",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "reveal_seed",
+      "docs": [
+        "Permissionless: consume the revealed randomness as the bracket seed.",
+        "Must be bundled with Switchboard's reveal in the same transaction."
+      ],
+      "discriminator": [
+        196,
+        119,
+        194,
+        112,
+        156,
+        211,
+        239,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Permissionless fee-payer — anyone may push the reveal through."
+          ],
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "randomness_account",
+          "docs": [
+            "`RandomnessAccountData` below."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_sas_config",
+      "discriminator": [
+        187,
+        112,
+        163,
+        60,
+        214,
+        195,
+        226,
+        187
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "sas_credential",
+          "type": "pubkey"
+        },
+        {
+          "name": "sas_schemas",
+          "type": {
+            "array": [
+              "pubkey",
+              5
+            ]
           }
         }
       ]
@@ -722,6 +1973,19 @@
   ],
   "events": [
     {
+      "name": "DisputeResolved",
+      "discriminator": [
+        121,
+        64,
+        249,
+        153,
+        139,
+        128,
+        236,
+        187
+      ]
+    },
+    {
       "name": "MatchReported",
       "discriminator": [
         213,
@@ -758,6 +2022,45 @@
         186,
         145,
         206
+      ]
+    },
+    {
+      "name": "ResultClaimed",
+      "discriminator": [
+        168,
+        27,
+        122,
+        207,
+        218,
+        79,
+        7,
+        6
+      ]
+    },
+    {
+      "name": "ResultDisputed",
+      "discriminator": [
+        13,
+        11,
+        195,
+        28,
+        30,
+        193,
+        133,
+        84
+      ]
+    },
+    {
+      "name": "ResultProposed",
+      "discriminator": [
+        216,
+        229,
+        56,
+        182,
+        48,
+        192,
+        53,
+        251
       ]
     },
     {
@@ -933,14 +2236,187 @@
       "code": 6023,
       "name": "SlotHashesUnavailable",
       "msg": "slot_hashes sysvar is empty; cannot derive seed"
+    },
+    {
+      "code": 6024,
+      "name": "GameNotYetSupported",
+      "msg": "Selected game is not yet supported for tournament creation"
+    },
+    {
+      "code": 6025,
+      "name": "AttestationRequired",
+      "msg": "This game requires a SAS identity attestation to join"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidAttestationOwner",
+      "msg": "Attestation account is not owned by the SAS program"
+    },
+    {
+      "code": 6027,
+      "name": "WrongAttestationCredential",
+      "msg": "Attestation credential does not match the protocol's SAS credential"
+    },
+    {
+      "code": 6028,
+      "name": "WrongAttestationSchema",
+      "msg": "Attestation schema does not match the game's SAS schema"
+    },
+    {
+      "code": 6029,
+      "name": "AttestationWalletMismatch",
+      "msg": "Attestation nonce does not bind to the joining wallet"
+    },
+    {
+      "code": 6030,
+      "name": "AttestationExpired",
+      "msg": "Attestation has expired"
+    },
+    {
+      "code": 6031,
+      "name": "MalformedAttestation",
+      "msg": "Attestation account data is malformed"
+    },
+    {
+      "code": 6032,
+      "name": "SettlementModeMismatch",
+      "msg": "This action is not allowed for the tournament's settlement mode"
+    },
+    {
+      "code": 6033,
+      "name": "NotPlayerInMatch",
+      "msg": "Signer is not a player in this match"
+    },
+    {
+      "code": 6034,
+      "name": "NotCounterparty",
+      "msg": "Only the counterparty may confirm or dispute this proposal"
+    },
+    {
+      "code": 6035,
+      "name": "NoProposal",
+      "msg": "Match has no pending proposal"
+    },
+    {
+      "code": 6036,
+      "name": "ProposalAlreadyExists",
+      "msg": "Match already has a pending proposal"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidProposedWinner",
+      "msg": "Proposed winner is not a player in this match"
+    },
+    {
+      "code": 6038,
+      "name": "ClaimWindowNotElapsed",
+      "msg": "Claim window has not elapsed yet"
+    },
+    {
+      "code": 6039,
+      "name": "ProposalDisputed",
+      "msg": "Proposal is disputed; it cannot be claimed"
+    },
+    {
+      "code": 6040,
+      "name": "ProposalNotDisputed",
+      "msg": "Proposal is not disputed"
+    },
+    {
+      "code": 6041,
+      "name": "SeedNotRevealed",
+      "msg": "Tournament seed has not been revealed; start is gated on VRF"
+    },
+    {
+      "code": 6042,
+      "name": "RandomnessNotResolved",
+      "msg": "Switchboard randomness is not yet resolved for this slot"
+    },
+    {
+      "code": 6043,
+      "name": "RandomnessAccountMismatch",
+      "msg": "Provided randomness account does not match the tournament commitment"
+    },
+    {
+      "code": 6044,
+      "name": "InvalidRandomnessOwner",
+      "msg": "Randomness account is not owned by the Switchboard On-Demand program"
+    },
+    {
+      "code": 6045,
+      "name": "MalformedRandomness",
+      "msg": "Randomness account data is malformed"
+    },
+    {
+      "code": 6046,
+      "name": "SeedAlreadyRevealed",
+      "msg": "Tournament seed has already been revealed"
+    },
+    {
+      "code": 6047,
+      "name": "InvalidTournamentAccount",
+      "msg": "Account is not a Tournament owned by this program"
+    },
+    {
+      "code": 6048,
+      "name": "MigrationNotNeeded",
+      "msg": "Tournament account is already at the V1 layout; migration not needed"
     }
   ],
   "types": [
+    {
+      "name": "DisputeResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "arbitrator",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "resolved_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "MatchInitDescriptor",
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "bracket",
+            "docs": [
+              "Bracket lane — always `0` for single-elimination (V1). Part of the PDA",
+              "seed (C9). See `MatchNode::bracket`."
+            ],
+            "type": "u8"
+          },
           {
             "name": "round",
             "type": "u8"
@@ -978,6 +2454,15 @@
             "type": "pubkey"
           },
           {
+            "name": "bracket",
+            "docs": [
+              "Bracket lane this node lives in. `0` for single-elimination (V1). Part",
+              "of the PDA seed (C9 schema-prep): future formats add a losers' bracket",
+              "(`1`) or per-group lanes without a second redeploy. Always `0` today."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "round",
             "type": "u8"
           },
@@ -1012,6 +2497,68 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "proposal_source",
+            "docs": [
+              "Origin of the pending proposal. `None` ⇒ envelope empty."
+            ],
+            "type": {
+              "defined": {
+                "name": "ProposalSource"
+              }
+            }
+          },
+          {
+            "name": "proposer",
+            "docs": [
+              "Wallet that authored the pending proposal (a match player, or the",
+              "oracle's reporter key). `Pubkey::default()` when empty."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_winner",
+            "docs": [
+              "Winner asserted by the pending proposal."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_at",
+            "docs": [
+              "Unix time the proposal was recorded."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "claim_deadline",
+            "docs": [
+              "Unix time after which a permissionless finalize is allowed. Set to",
+              "`proposed_at + dispute_window_secs` on propose; **re-armed** to",
+              "`now + FORCE_CLAIM_WINDOW_SECS` (24h) on dispute. The `disputed` flag",
+              "selects which permissionless ix may act past it: `claim_result` while",
+              "`!disputed`, `force_claim_disputed` while `disputed` (organizer silence",
+              "backstop). `resolve_dispute` ignores it — the organizer may act anytime."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "disputed",
+            "docs": [
+              "Set by `dispute_result`; blocks `claim_result` and routes the match to",
+              "the organizer arbitrator (`resolve_dispute`), with a 24h",
+              "`force_claim_disputed` backstop against organizer silence."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "dispute_reason",
+            "docs": [
+              "Free-form reason code supplied by the disputer (`0` = unspecified).",
+              "Surfaced by the indexer's notification kernel; not interpreted on-chain."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -1022,8 +2569,20 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
             "name": "tournament",
             "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "docs": [
+              "Bracket lane (C9). `0` for single-elimination (V1). The canonical",
+              "\"advance the bracket\" signal — emitted by every finalize path."
+            ],
+            "type": "u8"
           },
           {
             "name": "round",
@@ -1085,6 +2644,47 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "identity_hash",
+            "docs": [
+              "keccak hash of the SAS attestation's `identity_bytes`. Zero-bytes for",
+              "`Manual`-game tournaments (no attestation required)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "identity_attestation",
+            "docs": [
+              "The SAS Attestation account that bound this wallet ↔ game identity.",
+              "`Pubkey::default()` for Manual tournaments."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "wins",
+            "docs": [
+              "Foundation stats consumed by partial-cancel (make-whole survivors),",
+              "formats standings, and the webapp profile. Set by result-reporting ix."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "losses",
+            "type": "u8"
+          },
+          {
+            "name": "points_for",
+            "type": "u32"
+          },
+          {
+            "name": "points_against",
+            "type": "u32"
           }
         ]
       }
@@ -1094,6 +2694,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
           {
             "name": "tournament",
             "type": "pubkey"
@@ -1147,6 +2751,33 @@
       }
     },
     {
+      "name": "ProposalSource",
+      "docs": [
+        "Who authored the result currently sitting in a `MatchNode`'s proposal",
+        "envelope. The settlement flow treats every source uniformly — a proposal is",
+        "a proposal regardless of origin (C2: the Oracle is \"just another proposer\",",
+        "no parallel dispute system). Explicit discriminants are part of the wire",
+        "contract: the indexer and SDK decode by number."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "None"
+          },
+          {
+            "name": "Player"
+          },
+          {
+            "name": "Oracle"
+          },
+          {
+            "name": "GameServer"
+          }
+        ]
+      }
+    },
+    {
       "name": "ProtocolConfig",
       "type": {
         "kind": "struct",
@@ -1176,6 +2807,28 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "sas_credential",
+            "docs": [
+              "BracketChain's SAS Credential PDA (issuer = indexer's sas-issuer key).",
+              "`join_tournament` validates an attestation's credential against this."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "sas_schemas",
+            "docs": [
+              "One SAS Schema PDA per `SupportedGame` variant, indexed by discriminant",
+              "(`sas_schemas[game as usize]`). `Manual` (index 0) is unused. Set via",
+              "`set_sas_config`; unset slots are `Pubkey::default()`."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                5
+              ]
+            }
           }
         ]
       }
@@ -1185,6 +2838,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
           {
             "name": "tournament",
             "type": "pubkey"
@@ -1196,6 +2853,206 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResultClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "forced",
+            "docs": [
+              "`true` when finalized via `force_claim_disputed` (post-dispute backstop)",
+              "rather than the ordinary undisputed `claim_result`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "claimed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResultDisputed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "disputer",
+            "type": "pubkey"
+          },
+          {
+            "name": "dispute_reason",
+            "type": "u8"
+          },
+          {
+            "name": "force_claim_deadline",
+            "docs": [
+              "Re-armed deadline after which `force_claim_disputed` may finalize."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "disputed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResultProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "source",
+            "docs": [
+              "`ProposalSource` discriminant (1 = Player, 2 = Oracle, …)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "claim_deadline",
+            "docs": [
+              "Deadline after which `claim_result` may permissionlessly finalize."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "proposed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettlementMode",
+      "docs": [
+        "Who may report match results for a tournament. Locked at create-time.",
+        "`OrganizerOnly` (0) is the MVP behaviour and the only mode with a live",
+        "reporting path today; `PlayerReported` + `Oracle` ship their reporting",
+        "instructions in later V1 stages of this same redeploy. The enum ships now so",
+        "`tournament.settlement_mode` is positionally stable across the redeploy."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "OrganizerOnly"
+          },
+          {
+            "name": "PlayerReported"
+          },
+          {
+            "name": "Oracle"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SupportedGame",
+      "docs": [
+        "Game a tournament is played in. **Discriminants are a stable wire contract** —",
+        "indexers and the SAS game-identity schema lookup (`protocol_config.sas_schemas`)",
+        "index on these values, so never reorder or renumber. `Manual` (0) needs no",
+        "identity attestation; every other variant requires a SAS attestation at",
+        "`join_tournament`. Phase 1 only accepts `Manual` + `Dota2` at create-time",
+        "(the rest are reserved so the field stays positionally fixed)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Manual"
+          },
+          {
+            "name": "Dota2"
+          },
+          {
+            "name": "Cs2Faceit"
+          },
+          {
+            "name": "Valorant"
+          },
+          {
+            "name": "LoL"
           }
         ]
       }
@@ -1232,19 +3089,21 @@
           {
             "name": "organizer_deposit",
             "docs": [
-              "Optional organizer top-up to the prize pool, transferred into the vault",
-              "at creation. `0` is allowed. Refunded back to the organizer if the",
-              "tournament is cancelled before the first match. On completion, it stays",
-              "in the vault and is distributed as part of the prize pool (Variant B)."
+              "Optional organizer top-up transferred into the vault at creation.",
+              "`0` is allowed. Treated as a refundable commitment (Variant A):",
+              "returned to the organizer on `cancel_tournament` (pre-start) AND on",
+              "`report_result` final-match. The deposit is excluded from the",
+              "prize-pool basis — protocol fee + placement payouts apply to",
+              "`vault.amount - organizer_deposit` only."
             ],
             "type": "u64"
           },
           {
             "name": "organizer_deposit_refunded",
             "docs": [
-              "Tracks whether the organizer's deposit refund has been issued during a",
-              "cancellation. Independent of per-participant `refund_paid` flags so the",
-              "two paths can be processed in any order across cancel chunks."
+              "Set true once the deposit has been refunded — by `cancel_tournament`",
+              "(any-call, idempotent across chunks) or by `report_result` final-match.",
+              "Independent of per-participant `refund_paid` flags."
             ],
             "type": "bool"
           },
@@ -1324,6 +3183,58 @@
           {
             "name": "vault_bump",
             "type": "u8"
+          },
+          {
+            "name": "game",
+            "docs": [
+              "Game played; gates SAS identity requirement at `join_tournament`."
+            ],
+            "type": {
+              "defined": {
+                "name": "SupportedGame"
+              }
+            }
+          },
+          {
+            "name": "settlement_mode",
+            "docs": [
+              "Who may report results. Locked at create-time."
+            ],
+            "type": {
+              "defined": {
+                "name": "SettlementMode"
+              }
+            }
+          },
+          {
+            "name": "dispute_window_secs",
+            "docs": [
+              "Dispute window (seconds) for PlayerReported / Oracle settlement. Unused",
+              "by OrganizerOnly. Wired by the V1 player-reported stage of this redeploy."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "vrf_randomness_account",
+            "docs": [
+              "Switchboard randomness account committed via `request_seed` (VRF stage)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vrf_commit_slot",
+            "docs": [
+              "Slot the VRF commitment was made at; `reveal_seed` reads after it passes."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "seed_revealed",
+            "docs": [
+              "True once `reveal_seed` has populated `seed_hash` from VRF. Gates",
+              "`start_tournament` for non-OrganizerOnly tournaments."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -1333,6 +3244,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
           {
             "name": "tournament",
             "type": "pubkey"
@@ -1353,6 +3268,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
           {
             "name": "tournament",
             "type": "pubkey"
@@ -1408,6 +3327,13 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "event_version",
+            "docs": [
+              "Event wire version (C10). Always first field. See `EVENT_VERSION_V1`."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "tournament",
             "type": "pubkey"
           },
@@ -1455,6 +3381,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
           {
             "name": "tournament",
             "type": "pubkey"
@@ -1512,6 +3442,26 @@
       "name": "BPS_DENOMINATOR",
       "type": "u16",
       "value": "10000"
+    },
+    {
+      "name": "EVENT_VERSION_V1",
+      "docs": [
+        "Wire version stamped as the first field of every `#[event]` struct (C10).",
+        "The indexer parser rejects events whose `event_version` differs, preventing",
+        "silent Borsh mis-decode when the event layout changes in a future redeploy."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "FORCE_CLAIM_WINDOW_SECS",
+      "docs": [
+        "Grace period after a dispute before `force_claim_disputed` lets anyone",
+        "finalize the proposed winner — the trustless backstop against an organizer",
+        "who never calls `resolve_dispute`. 24 hours."
+      ],
+      "type": "i64",
+      "value": "86400"
     },
     {
       "name": "MAX_PARTICIPANTS",
