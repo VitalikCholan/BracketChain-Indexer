@@ -22,6 +22,12 @@ model Tournament {
   payoutPreset         PayoutPreset
   registrationDeadline DateTime
   status               TournamentStatus
+  /// On-chain settlement mode. Not carried by any event, so it is backfilled
+  /// from the chain by the reconciliation cron (set-once — immutable on-chain).
+  /// Null until first reconciled; always populated well before a tournament is
+  /// Active (the only state the report/settle UI acts on). The frontend reads
+  /// this to pick the result flow (organizer-report vs player-reported).
+  settlementMode       SettlementMode?
   champion             String?
   grossPool            BigInt?
   feeAmount            BigInt?
@@ -174,6 +180,14 @@ enum TournamentStatus {
   Active
   Completed
   Cancelled
+}
+
+/// On-chain `SettlementMode` — how match results are settled. Mirrors the
+/// program enum (OrganizerOnly=0, PlayerReported=1, Oracle=2).
+enum SettlementMode {
+  OrganizerOnly
+  PlayerReported
+  Oracle
 }
 
 enum PayoutKind {

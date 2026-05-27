@@ -4,7 +4,11 @@ import { PublicKey } from '@solana/web3.js';
 
 import { PrismaService } from '../prisma.service';
 import { ChainReaderService } from '../chain/chain-reader.service';
-import { PayoutPreset, TournamentStatus } from '../generated/prisma';
+import {
+  PayoutPreset,
+  SettlementMode,
+  TournamentStatus,
+} from '../generated/prisma';
 
 /**
  * Phase 5.4: reconciliation cron.
@@ -111,6 +115,7 @@ export class ReconciliationService {
         status: true,
         champion: true,
         chainSlotAtWrite: true,
+        settlementMode: true,
       },
     });
 
@@ -141,8 +146,13 @@ export class ReconciliationService {
       const statusDrift = chainStatus !== null && chainStatus !== dbRow.status;
       const championDrift = chainChampion !== dbRow.champion;
       const slotDrift = dbRow.chainSlotAtWrite < slot - BigInt(150);
+      // settlement_mode is immutable on-chain and carried by no event, so we
+      // backfill it set-once: populate the cache the first time we see the row.
+      const chainSettlement = anchorEnumToSettlementMode(chain.settlementMode);
+      const needsSettlement =
+        dbRow.settlementMode === null && chainSettlement !== null;
 
-      if (!statusDrift && !championDrift && !slotDrift) {
+      if (!statusDrift && !championDrift && !slotDrift && !needsSettlement) {
         continue;
       }
 
@@ -151,6 +161,7 @@ export class ReconciliationService {
       const data: {
         status?: TournamentStatus;
         champion?: string | null;
+        settlementMode?: SettlementMode;
         chainSlotAtWrite: bigint;
       } = { chainSlotAtWrite: slot };
 
@@ -162,6 +173,9 @@ export class ReconciliationService {
       }
       if (championDrift) {
         data.champion = chainChampion;
+      }
+      if (needsSettlement && chainSettlement !== null) {
+        data.settlementMode = chainSettlement;
       }
 
       await this.prisma.tournament.update({
@@ -191,6 +205,20 @@ function anchorEnumToDbStatus(variant: {
   const keys = Object.keys(variant);
   if (keys.length !== 1) return null;
   return ENUM_TO_STATUS[keys[0]] ?? null;
+}
+
+const ENUM_TO_SETTLEMENT: Record<string, SettlementMode> = {
+  organizerOnly: SettlementMode.OrganizerOnly,
+  playerReported: SettlementMode.PlayerReported,
+  oracle: SettlementMode.Oracle,
+};
+
+function anchorEnumToSettlementMode(variant: {
+  [k: string]: object;
+}): SettlementMode | null {
+  const keys = Object.keys(variant);
+  if (keys.length !== 1) return null;
+  return ENUM_TO_SETTLEMENT[keys[0]] ?? null;
 }
 
 // Unused but kept exported for symmetry with handler — Phase 5.5 may want

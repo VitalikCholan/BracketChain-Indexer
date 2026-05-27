@@ -71,7 +71,7 @@ export class VrfRevealDriver extends PermissionlessDriver {
     const pdas = candidates.map((c) => new PublicKey(c.address));
     const [decoded, currentSlot] = await Promise.all([
       this.chain.fetchTournaments(pdas),
-      this.chain.getCurrentSlot(),
+      this.chain.getSlot(),
     ]);
 
     const pending: Array<{ address: string; randomnessAccount: string }> = [];
