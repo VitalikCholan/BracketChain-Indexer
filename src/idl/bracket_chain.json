@@ -8,6 +8,98 @@
   },
   "instructions": [
     {
+      "name": "bind_match_feed",
+      "docs": [
+        "Organizer (Stage C / V1.2): bind a Switchboard PullFeed to a committed match."
+      ],
+      "discriminator": [
+        108,
+        176,
+        122,
+        23,
+        194,
+        50,
+        195,
+        76
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "switchboard_feed",
+          "docs": [
+            "parsed `PullFeedAccountData.queue` must match `protocol_config`."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancel_tournament",
       "discriminator": [
         249,
@@ -296,6 +388,148 @@
           "name": "placements",
           "type": {
             "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "commit_match_lobby",
+      "docs": [
+        "Organizer (Stage C / V1.2): commit a match to a game lobby pre-launch."
+      ],
+      "discriminator": [
+        37,
+        201,
+        27,
+        223,
+        219,
+        158,
+        8,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "participant_a",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_a",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "participant_b",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_b",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "lobby_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "expected_feed_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
           }
         }
       ]
@@ -1305,6 +1539,100 @@
       ]
     },
     {
+      "name": "propose_result_oracle",
+      "docs": [
+        "Permissionless (Stage C / V1.2): write the oracle-reported winner into",
+        "the proposal envelope (`source = Oracle`)."
+      ],
+      "discriminator": [
+        252,
+        97,
+        195,
+        178,
+        97,
+        244,
+        118,
+        88
+      ],
+      "accounts": [
+        {
+          "name": "relayer",
+          "docs": [
+            "Permissionless relayer / fee-payer — anyone may push the proposal; trust",
+            "bottoms out in the feed account contents, not the signer."
+          ],
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "switchboard_feed"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "report_result",
       "discriminator": [
         195,
@@ -1776,6 +2104,73 @@
       "args": []
     },
     {
+      "name": "set_oracle_config",
+      "docs": [
+        "Admin (Stage C / V1.2): set Switchboard On-Demand settlement params."
+      ],
+      "discriminator": [
+        96,
+        171,
+        6,
+        98,
+        153,
+        183,
+        233,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "switchboard_queue",
+          "type": "pubkey"
+        },
+        {
+          "name": "max_stale_slots",
+          "type": "u32"
+        },
+        {
+          "name": "min_oracle_samples",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "set_sas_config",
       "discriminator": [
         187,
@@ -1983,6 +2378,32 @@
         128,
         236,
         187
+      ]
+    },
+    {
+      "name": "MatchFeedBound",
+      "discriminator": [
+        168,
+        244,
+        241,
+        142,
+        82,
+        57,
+        100,
+        145
+      ]
+    },
+    {
+      "name": "MatchLobbyCommitted",
+      "discriminator": [
+        36,
+        183,
+        130,
+        188,
+        204,
+        182,
+        54,
+        16
       ]
     },
     {
@@ -2361,6 +2782,36 @@
       "code": 6048,
       "name": "MigrationNotNeeded",
       "msg": "Tournament account is already at the V1 layout; migration not needed"
+    },
+    {
+      "code": 6049,
+      "name": "MatchAlreadyCommitted",
+      "msg": "Match already has a lobby commitment"
+    },
+    {
+      "code": 6050,
+      "name": "MatchNotCommitted",
+      "msg": "Match has no lobby commitment; commit before binding a feed"
+    },
+    {
+      "code": 6051,
+      "name": "WrongFeedAccount",
+      "msg": "Switchboard feed account is not owned by the On-Demand program, or is on the wrong queue"
+    },
+    {
+      "code": 6052,
+      "name": "OracleWinnerNotInMatch",
+      "msg": "Oracle feed value did not match either committed player identity"
+    },
+    {
+      "code": 6053,
+      "name": "NotAuthorized",
+      "msg": "Signer is not authorized to dispute this Oracle proposal"
+    },
+    {
+      "code": 6054,
+      "name": "BadProposalSource",
+      "msg": "Proposal source is not valid for this action"
     }
   ],
   "types": [
@@ -2405,6 +2856,129 @@
       }
     },
     {
+      "name": "MatchCommitment",
+      "docs": [
+        "Pre-match commitment binding an on-chain match to a real game lobby (Stage C",
+        "/ V1.2 Oracle settlement). Written by `commit_match_lobby` **before** the",
+        "lobby launches.",
+        "",
+        "**Anti-redirection (trust model).** The Switchboard `OracleJob` is",
+        "parameterized with `lobby_id` + both `player_*_game_id`, so those identities",
+        "are baked into the feed's `feed_hash` (SHA-256 of the job schema). We commit",
+        "the off-chain-computed `expected_feed_hash` here, and `bind_match_feed`",
+        "requires the bound feed's `feed_hash` to equal it — cryptographically tying",
+        "the feed to *these two identities in this lobby*. The job then returns only",
+        "the **winner index** (0 = player_a, 1 = player_b); identity is verified via",
+        "the feed binding, not via the (range-limited) feed value. The dispute window",
+        "+ arbitrator is the ultimate backstop (the oracle is \"just another",
+        "proposer\"). `feed.authority` pinning (Layer 2) is deferred.",
+        "",
+        "`player_*_game_id` are copied verbatim from each `Participant.identity_hash`",
+        "(32-byte `SHA-256(steam_id_64 LE)`, A-9): they are the OracleJob query",
+        "params (and the basis for `expected_feed_hash`) plus an audit record."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lobby_id",
+            "docs": [
+              "Organizer-chosen pre-match identifier (frontend-generated random 16",
+              "bytes). Need not be the real Dota lobby id — only unforgeable post-hoc;",
+              "pasted into the lobby name as the human-side ceremony."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "player_a_game_id",
+            "docs": [
+              "`participant_a.identity_hash` at commit time."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "player_b_game_id",
+            "docs": [
+              "`participant_b.identity_hash` at commit time."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "expected_feed_hash",
+            "docs": [
+              "SHA-256 of the OracleJob schema the feed-factory will run for this match",
+              "(computed off-chain from `lobby_id` + both `player_*_game_id`).",
+              "`bind_match_feed` enforces `feed.feed_hash == expected_feed_hash`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "committed_at",
+            "type": "i64"
+          },
+          {
+            "name": "committed_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchFeedBound",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "switchboard_feed",
+            "docs": [
+              "Switchboard On-Demand `PullFeedAccountData` PDA bound to this match."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "MatchInitDescriptor",
       "type": {
         "kind": "struct",
@@ -2440,6 +3014,50 @@
           {
             "name": "bye",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchLobbyCommitted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "lobby_id",
+            "docs": [
+              "Organizer-chosen pre-match lobby identifier (16 bytes)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "committed_at",
+            "type": "i64"
           }
         ]
       }
@@ -2559,6 +3177,29 @@
               "Surfaced by the indexer's notification kernel; not interpreted on-chain."
             ],
             "type": "u8"
+          },
+          {
+            "name": "commitment",
+            "docs": [
+              "Pre-match lobby/identity commitment, written by `commit_match_lobby`.",
+              "`None` for OrganizerOnly / PlayerReported matches."
+            ],
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "MatchCommitment"
+                }
+              }
+            }
+          },
+          {
+            "name": "switchboard_feed",
+            "docs": [
+              "Switchboard On-Demand `PullFeedAccountData` PDA bound by",
+              "`bind_match_feed`; `propose_result_oracle` reads the winner from it.",
+              "`Pubkey::default()` (zero) ⇒ no feed bound."
+            ],
+            "type": "pubkey"
           }
         ]
       }
@@ -2829,6 +3470,30 @@
                 5
               ]
             }
+          },
+          {
+            "name": "switchboard_queue",
+            "docs": [
+              "Shared Switchboard On-Demand queue that bound feeds must belong to.",
+              "(The On-Demand program id itself is the `SWITCHBOARD_ON_DEMAND_*`",
+              "constant — not duplicated here.) Set via `set_oracle_config`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "max_stale_slots",
+            "docs": [
+              "Max age (slots) a feed value may have when read by",
+              "`propose_result_oracle`. Default 100."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_oracle_samples",
+            "docs": [
+              "Minimum oracle samples required for a feed value. Default 5."
+            ],
+            "type": "u32"
           }
         ]
       }
@@ -3235,6 +3900,14 @@
               "`start_tournament` for non-OrganizerOnly tournaments."
             ],
             "type": "bool"
+          },
+          {
+            "name": "arbitrator",
+            "docs": [
+              "May dispute an Oracle proposal and call `resolve_dispute`. Defaults to",
+              "`organizer` at create-time (Squads multisig reassignment is V1.3)."
+            ],
+            "type": "pubkey"
           }
         ]
       }

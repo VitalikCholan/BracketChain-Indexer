@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ChainReaderService } from '../chain/chain-reader.service';
 import { PrismaService } from '../prisma.service';
 import { AutoClaimDriver } from './auto-claim.driver';
+import { OracleRelayerDriver } from './oracle-relayer.driver';
 import { VrfRevealDriver } from './vrf-reveal.driver';
 
 /**
@@ -22,6 +23,7 @@ import { VrfRevealDriver } from './vrf-reveal.driver';
     PrismaService,
     ChainReaderService,
     AutoClaimDriver,
+    OracleRelayerDriver,
     VrfRevealDriver,
   ],
 })

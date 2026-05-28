@@ -2,6 +2,8 @@ import { HeliusParserService } from './helius-parser.service';
 import type { HeliusTransaction } from './dto/helius-payload.dto';
 import type {
   DisputeResolvedEvent,
+  MatchFeedBoundEvent,
+  MatchLobbyCommittedEvent,
   MatchReportedEvent,
   ParticipantRegisteredEvent,
   RefundIssuedEvent,
@@ -136,6 +138,16 @@ type ParserPrivate = {
   ) => Promise<void>;
   handleDisputeResolved: (
     data: DisputeResolvedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleMatchLobbyCommitted: (
+    data: MatchLobbyCommittedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleMatchFeedBound: (
+    data: MatchFeedBoundEvent,
     tx: HeliusTransaction,
     sig: string,
   ) => Promise<void>;
@@ -860,6 +872,123 @@ describe('HeliusParserService', () => {
     it('skips when Tournament row missing (FK guard)', async () => {
       prisma.tournament.findUnique.mockResolvedValueOnce(null);
       await asPrivate(service).handleDisputeResolved(data, makeTx(), TX_SIGNATURE);
+      expect(prisma.match.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MatchLobbyCommitted', () => {
+    const COMMITTED_AT_SEC = TX_TIMESTAMP_SEC;
+    const LOBBY_ID = [
+      0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+      0x0d, 0x0e, 0x0f, 0x10,
+    ];
+    const data: MatchLobbyCommittedEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 0,
+      match_index: 1,
+      lobby_id: LOBBY_ID,
+      committed_at: COMMITTED_AT_SEC,
+    };
+
+    it('happy-path → writes lobbyId + committedAt with Active status', async () => {
+      await asPrivate(service).handleMatchLobbyCommitted(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchUpsert();
+      expect(call.where.tournamentAddress_bracket_round_matchIndex).toEqual({
+        tournamentAddress: TOURNAMENT_PDA,
+        bracket: 0,
+        round: 0,
+        matchIndex: 1,
+      });
+      expect(call.create.status).toBe('Active');
+      // Bytes column expects a fresh-ArrayBuffer Uint8Array (Prisma 7 quirk).
+      expect(call.create.lobbyId).toBeInstanceOf(Uint8Array);
+      expect(Array.from(call.create.lobbyId as Uint8Array)).toEqual(LOBBY_ID);
+      expect((call.create.committedAt as Date).getTime()).toBe(
+        COMMITTED_AT_SEC * 1000,
+      );
+      // Feed binding is a separate event — must not be set here.
+      expect(call.create.switchboardFeed).toBeUndefined();
+    });
+
+    it('terminal-status guard → does not downgrade a Completed match', async () => {
+      prisma.match.findUnique.mockResolvedValueOnce({ status: 'Completed' });
+      await asPrivate(service).handleMatchLobbyCommitted(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      const call = lastMatchUpsert();
+      expect(call.create.status).toBe('Completed');
+      expect(call.update.status).toBe('Completed');
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleMatchLobbyCommitted(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MatchFeedBound', () => {
+    const SWITCHBOARD_FEED = 'Feed1111111111111111111111111111111111111111';
+    const data: MatchFeedBoundEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 0,
+      match_index: 1,
+      switchboard_feed: SWITCHBOARD_FEED,
+    };
+
+    it('happy-path → writes switchboardFeed with Active status', async () => {
+      await asPrivate(service).handleMatchFeedBound(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchUpsert();
+      expect(call.where.tournamentAddress_bracket_round_matchIndex).toEqual({
+        tournamentAddress: TOURNAMENT_PDA,
+        bracket: 0,
+        round: 0,
+        matchIndex: 1,
+      });
+      expect(call.create.status).toBe('Active');
+      expect(call.create.switchboardFeed).toBe(SWITCHBOARD_FEED);
+      // Commit fields belong to the other event — must not be set here.
+      expect(call.create.lobbyId).toBeUndefined();
+      expect(call.create.committedAt).toBeUndefined();
+    });
+
+    it('terminal-status guard → does not downgrade a Completed match', async () => {
+      prisma.match.findUnique.mockResolvedValueOnce({ status: 'Completed' });
+      await asPrivate(service).handleMatchFeedBound(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      const call = lastMatchUpsert();
+      expect(call.create.status).toBe('Completed');
+      expect(call.update.status).toBe('Completed');
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleMatchFeedBound(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
       expect(prisma.match.upsert).not.toHaveBeenCalled();
     });
   });

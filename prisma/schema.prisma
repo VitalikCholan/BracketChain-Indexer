@@ -43,6 +43,12 @@ model Tournament {
   /// rows seeded before 5.1; webhook handler upgrades it on the next
   /// state-changing event for that tournament.
   chainSlotAtWrite     BigInt           @default(0)
+  /// Stage C (V1.2 Oracle settlement): on-chain `tournament.arbitrator` —
+  /// the wallet that may resolve Oracle-proposed disputes (in addition to
+  /// the two players). Defaults to organizer at create-time on chain; until
+  /// V1.3 reassignment, it tracks the organizer. Nullable so pre-V1.2 rows
+  /// decode; populated by the reconciliation cron (no event carries it).
+  arbitrator           String?
   payouts              Payout[]
   participants         Participant[]
   matches              Match[]
@@ -124,6 +130,20 @@ model Match {
   disputed          Boolean     @default(false)
   /// Raw `dispute_reason` code (u8) from the ResultDisputed event.
   disputeReason     Int?
+  /// Stage C (V1.2 Oracle settlement) — `MatchCommitment` snapshot. All
+  /// nullable: OrganizerOnly/PlayerReported matches never get them; pre-V1.2
+  /// rows decode cleanly. `lobbyId` + `committedAt` come from the
+  /// `MatchLobbyCommitted` event; the game IDs + expected feed hash live
+  /// only on the on-chain `MatchCommitment` and are populated by the
+  /// reconciliation cron (audit + frontend OraclePendingPanel display).
+  /// `switchboardFeed` comes from the `MatchFeedBound` event and is the
+  /// scan-key for the oracle-relayer cron.
+  lobbyId           Bytes?
+  playerAGameId     Bytes?
+  playerBGameId     Bytes?
+  expectedFeedHash  Bytes?
+  committedAt       DateTime?
+  switchboardFeed   String?
 
   @@unique([tournamentAddress, bracket, round, matchIndex])
   @@index([tournamentAddress])

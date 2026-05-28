@@ -19,6 +19,8 @@ import type {
 import type {
   BracketChainEvent,
   DisputeResolvedEvent,
+  MatchFeedBoundEvent,
+  MatchLobbyCommittedEvent,
   MatchReportedEvent,
   ParticipantRegisteredEvent,
   RefundIssuedEvent,
@@ -39,7 +41,9 @@ interface ParsedAnchorEvent {
 }
 
 /// Subset of Match columns the Stage B settlement handlers write. Spread into
-/// both the create and update branch of the envelope upsert.
+/// both the create and update branch of the envelope upsert. Stage C extends
+/// it with the commit/feed-bind fields written by the `MatchLobbyCommitted`
+/// and `MatchFeedBound` handlers.
 interface MatchEnvelopeFields {
   proposalSource?: ProposalSource;
   proposer?: string;
@@ -51,6 +55,9 @@ interface MatchEnvelopeFields {
   winner?: string;
   reportedAt?: Date;
   reportedTxSig?: string;
+  lobbyId?: Uint8Array<ArrayBuffer>;
+  committedAt?: Date;
+  switchboardFeed?: string;
 }
 
 const PAYOUT_PRESET_BY_INDEX: Record<number, PayoutPreset> = {
@@ -210,6 +217,14 @@ export class HeliusParserService implements OnModuleInit {
           break;
         case 'DisputeResolved':
           await this.handleDisputeResolved(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'MatchLobbyCommitted':
+          await this.handleMatchLobbyCommitted(evt.data, tx, signature);
+          handled++;
+          break;
+        case 'MatchFeedBound':
+          await this.handleMatchFeedBound(evt.data, tx, signature);
           handled++;
           break;
         default:
@@ -863,6 +878,73 @@ export class HeliusParserService implements OnModuleInit {
       );
     }
   }
+
+  // ── Stage C (V1.2 Oracle settlement) commit/bind ceremony handlers ────────
+  // Both events fire only for Oracle-mode tournaments. The match stays Active
+  // on-chain through both ix, so we don't move status; applyMatchEnvelope's
+  // upsert path will create a bare row if commit lands before any prior event
+  // (lean indexer — pending matches aren't seeded). `playerAGameId` /
+  // `playerBGameId` / `expectedFeedHash` live on the on-chain MatchCommitment
+  // but aren't carried by either event; the reconciliation cron backfills them.
+
+  private async handleMatchLobbyCommitted(
+    data: MatchLobbyCommittedEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    // `new Uint8Array(numberArray)` allocates a fresh `ArrayBuffer` (not
+    // `SharedArrayBuffer`), which is what Prisma's `Bytes` column expects.
+    const lobbyId = new Uint8Array(data.lobby_id);
+    const committedAt = new Date(toNumber(data.committed_at) * 1000);
+
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.Active,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: { lobbyId, committedAt },
+    });
+    if (ok) {
+      this.logger.log(
+        `matchLobbyCommitted ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `lobby=0x${bytesToHex(lobbyId)} (signature=${signature})`,
+      );
+    }
+  }
+
+  private async handleMatchFeedBound(
+    data: MatchFeedBoundEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const switchboardFeed = pubkeyToString(data.switchboard_feed);
+
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.Active,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: { switchboardFeed },
+    });
+    if (ok) {
+      this.logger.log(
+        `matchFeedBound ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `feed=${switchboardFeed} (signature=${signature})`,
+      );
+    }
+  }
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -916,6 +998,13 @@ function parsePlacementPayouts(
       // Skip malformed rows — best-effort.
     }
   }
+  return out;
+}
+
+/** Lowercase hex of a byte array — for logging the on-chain `lobby_id` etc. */
+function bytesToHex(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += b.toString(16).padStart(2, '0');
   return out;
 }
 

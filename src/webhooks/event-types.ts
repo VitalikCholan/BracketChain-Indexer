@@ -151,6 +151,31 @@ export interface DisputeResolvedEvent {
   resolved_at: EventNumber;
 }
 
+// ── Stage C (V1.2 Oracle settlement) commitment-ceremony events ──────────────
+// Only the commit/bind ceremony needs new events. The oracle *result* reuses
+// V1's `ResultProposed` (`source = Oracle`); claim/dispute/resolve fire V1's
+// existing events unchanged — the parser differentiates Oracle from Player on
+// `ResultProposed.source`.
+
+export interface MatchLobbyCommittedEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  /** Organizer-chosen pre-match lobby identifier (16 bytes, [u8;16] on chain). */
+  lobby_id: number[];
+  committed_at: EventNumber;
+}
+
+export interface MatchFeedBoundEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  /** Switchboard On-Demand `PullFeedAccountData` PDA bound to this match. */
+  switchboard_feed: EventPubkey;
+}
+
 export type BracketChainEvent =
   | { name: 'TournamentCreated'; data: TournamentCreatedEvent }
   | { name: 'ParticipantRegistered'; data: ParticipantRegisteredEvent }
@@ -162,4 +187,6 @@ export type BracketChainEvent =
   | { name: 'ResultProposed'; data: ResultProposedEvent }
   | { name: 'ResultDisputed'; data: ResultDisputedEvent }
   | { name: 'ResultClaimed'; data: ResultClaimedEvent }
-  | { name: 'DisputeResolved'; data: DisputeResolvedEvent };
+  | { name: 'DisputeResolved'; data: DisputeResolvedEvent }
+  | { name: 'MatchLobbyCommitted'; data: MatchLobbyCommittedEvent }
+  | { name: 'MatchFeedBound'; data: MatchFeedBoundEvent };
