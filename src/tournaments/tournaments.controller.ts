@@ -4,20 +4,33 @@ import { ListTournamentsQueryDto } from './dto/list-tournaments.dto';
 import { CheckNameQueryDto } from './dto/check-name.dto';
 
 // JSON.stringify can't serialize BigInt — convert to string in API responses.
+// Prisma `Bytes` columns surface as Uint8Array; serialize as lowercase hex
+// (consistent with how the on-chain values are displayed) so the frontend
+// can render them without inspecting a numeric-keyed object.
 type Serialized<T> = {
   [K in keyof T]: T[K] extends bigint
     ? string
     : T[K] extends bigint | null
       ? string | null
-      : T[K];
+      : T[K] extends Uint8Array
+        ? string
+        : T[K] extends Uint8Array | null
+          ? string | null
+          : T[K];
 };
 
-function serializeBigInts<T extends Record<string, unknown>>(
-  row: T,
-): Serialized<T> {
+function bytesToHex(b: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+function serializeRow<T extends Record<string, unknown>>(row: T): Serialized<T> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
-    out[k] = typeof v === 'bigint' ? v.toString() : v;
+    if (typeof v === 'bigint') out[k] = v.toString();
+    else if (v instanceof Uint8Array) out[k] = bytesToHex(v);
+    else out[k] = v;
   }
   return out as Serialized<T>;
 }
@@ -32,7 +45,7 @@ export class TournamentsController {
       status: query.status,
       limit: query.limit,
     });
-    return rows.map(serializeBigInts);
+    return rows.map(serializeRow);
   }
 
   /**
@@ -47,24 +60,24 @@ export class TournamentsController {
   @Get(':address')
   async getOne(@Param('address') address: string) {
     const row = await this.service.getOne(address);
-    return serializeBigInts(row);
+    return serializeRow(row);
   }
 
   @Get(':address/payouts')
   async payouts(@Param('address') address: string) {
     const rows = await this.service.getPayouts(address);
-    return rows.map(serializeBigInts);
+    return rows.map(serializeRow);
   }
 
   @Get(':address/participants')
   async participants(@Param('address') address: string) {
     const rows = await this.service.getParticipants(address);
-    return rows.map(serializeBigInts);
+    return rows.map(serializeRow);
   }
 
   @Get(':address/matches')
   async matches(@Param('address') address: string) {
     const rows = await this.service.getMatches(address);
-    return rows.map(serializeBigInts);
+    return rows.map(serializeRow);
   }
 }

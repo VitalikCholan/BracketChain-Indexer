@@ -1410,6 +1410,70 @@
       "args": []
     },
     {
+      "name": "migrate_protocol_config",
+      "docs": [
+        "Admin one-shot: realloc `ProtocolConfig` from the pre-V1.1 layout",
+        "(107 bytes) to the current `INIT_SPACE`. Required after an in-place",
+        "upgrade across Stages B (SAS) / C (Oracle) when the existing PDA was",
+        "initialized under V1.0 and never grown. New bytes are zero-filled; the",
+        "authority follows up with `set_sas_config` / `set_oracle_config` to",
+        "populate the new fields."
+      ],
+      "discriminator": [
+        240,
+        133,
+        241,
+        218,
+        118,
+        253,
+        139,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "migrate_v1_tournament",
       "docs": [
         "Devnet upgrade-only: grow a pre-V1 Tournament account to the V1 layout.",
