@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { KeychainService } from '../keys/keychain.service';
 
@@ -12,10 +12,35 @@ const RPC_HTTP = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
 /** `SupportedGame::Dota2` discriminant — must match the on-chain enum. */
 const GAME_DOTA2 = 1;
 
+/**
+ * Games that have a SAS schema in Phase 1. Keyed by the slug the frontend puts
+ * in the `:game` path param (and tolerant of the raw enum discriminant). Only
+ * Dota 2 ships a schema today; `manual` (0) carries no identity at all.
+ */
+const SUPPORTED_GAME_SCHEMAS: Record<string, string> = {
+  dota2: SAS_SCHEMA_DOTA2,
+  '1': SAS_SCHEMA_DOTA2,
+};
+
+// SAS schema `data` is borsh `game(u8) + steam_id_64(u64) + identity_bytes(Vec)`.
+// The 32-byte identity fingerprint starts after game(1) + steam(8) + vec_len(4).
+const IDENTITY_BYTES_OFFSET = 13;
+
 export interface IssuedAttestation {
   attestation: string;
   signature: string;
   alreadyExisted: boolean;
+}
+
+export interface GameIdentity {
+  /** Derived SAS attestation PDA for (credential, schema, wallet). */
+  attestationPda: string;
+  /** Whether the attestation account exists on-chain. */
+  exists: boolean;
+  /** Hex of the 32-byte identity fingerprint (= SHA-256(steamId64 LE)). */
+  identityHash?: string;
+  /** Unix-seconds expiry; `0` = never expires (matches on-chain convention). */
+  expiry?: number;
 }
 
 @Injectable()
@@ -114,5 +139,53 @@ export class IdentityService {
       `issued attestation ${attestation} for ${wallet} (sig ${signature})`,
     );
     return { attestation: String(attestation), signature, alreadyExisted: false };
+  }
+
+  /**
+   * Read-only lookup of a wallet's game-identity attestation (A11-1), used by
+   * the frontend join flow to prefetch the attestation account before passing
+   * it to `joinTournament`, and to render "linked / not linked".
+   *
+   * Derives the same SAS PDA as issuance, reads it on-chain (no DB), and — when
+   * present — surfaces the verbatim 32-byte `identity_bytes` fingerprint and the
+   * expiry. On-chain is the single source of truth, so there is no cache.
+   */
+  async getGameIdentity(wallet: string, game: string): Promise<GameIdentity> {
+    const schema = SUPPORTED_GAME_SCHEMAS[game.toLowerCase()];
+    if (!schema) {
+      throw new BadRequestException(
+        `unsupported game "${game}" — only Dota 2 has a SAS schema in Phase 1`,
+      );
+    }
+    if (wallet.length < 32 || wallet.length > 44) {
+      throw new BadRequestException('invalid wallet address');
+    }
+
+    const { deriveAttestationPda, fetchMaybeAttestation } = await import('sas-lib');
+    const kit = await import('@solana/kit');
+
+    const [attestation] = await deriveAttestationPda({
+      credential: SAS_CREDENTIAL as never,
+      schema: schema as never,
+      nonce: wallet as never,
+    });
+
+    const rpc = kit.createSolanaRpc(RPC_HTTP);
+    const acct = await fetchMaybeAttestation(rpc, attestation);
+    if (!acct.exists) {
+      return { attestationPda: String(attestation), exists: false };
+    }
+
+    const payload = acct.data.data;
+    const identity = payload.slice(
+      IDENTITY_BYTES_OFFSET,
+      IDENTITY_BYTES_OFFSET + 32,
+    );
+    return {
+      attestationPda: String(attestation),
+      exists: true,
+      identityHash: Buffer.from(identity).toString('hex'),
+      expiry: Number(acct.data.expiry),
+    };
   }
 }

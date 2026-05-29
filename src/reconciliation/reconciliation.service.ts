@@ -5,6 +5,7 @@ import { PublicKey } from '@solana/web3.js';
 import { PrismaService } from '../prisma.service';
 import { ChainReaderService } from '../chain/chain-reader.service';
 import {
+  Game,
   PayoutPreset,
   SettlementMode,
   TournamentStatus,
@@ -116,6 +117,7 @@ export class ReconciliationService {
         champion: true,
         chainSlotAtWrite: true,
         settlementMode: true,
+        game: true,
       },
     });
 
@@ -151,8 +153,18 @@ export class ReconciliationService {
       const chainSettlement = anchorEnumToSettlementMode(chain.settlementMode);
       const needsSettlement =
         dbRow.settlementMode === null && chainSettlement !== null;
+      // game is immutable on-chain and carried by no event — backfill set-once,
+      // same as settlement_mode.
+      const chainGame = anchorEnumToGame(chain.game);
+      const needsGame = dbRow.game === null && chainGame !== null;
 
-      if (!statusDrift && !championDrift && !slotDrift && !needsSettlement) {
+      if (
+        !statusDrift &&
+        !championDrift &&
+        !slotDrift &&
+        !needsSettlement &&
+        !needsGame
+      ) {
         continue;
       }
 
@@ -162,6 +174,7 @@ export class ReconciliationService {
         status?: TournamentStatus;
         champion?: string | null;
         settlementMode?: SettlementMode;
+        game?: Game;
         chainSlotAtWrite: bigint;
       } = { chainSlotAtWrite: slot };
 
@@ -176,6 +189,9 @@ export class ReconciliationService {
       }
       if (needsSettlement && chainSettlement !== null) {
         data.settlementMode = chainSettlement;
+      }
+      if (needsGame && chainGame !== null) {
+        data.game = chainGame;
       }
 
       await this.prisma.tournament.update({
@@ -219,6 +235,21 @@ function anchorEnumToSettlementMode(variant: {
   const keys = Object.keys(variant);
   if (keys.length !== 1) return null;
   return ENUM_TO_SETTLEMENT[keys[0]] ?? null;
+}
+
+// Anchor lowercases the first letter of each variant when decoding.
+const ENUM_TO_GAME: Record<string, Game> = {
+  manual: Game.Manual,
+  dota2: Game.Dota2,
+  cs2Faceit: Game.Cs2Faceit,
+  valorant: Game.Valorant,
+  loL: Game.LoL,
+};
+
+function anchorEnumToGame(variant: { [k: string]: object }): Game | null {
+  const keys = Object.keys(variant);
+  if (keys.length !== 1) return null;
+  return ENUM_TO_GAME[keys[0]] ?? null;
 }
 
 // Unused but kept exported for symmetry with handler — Phase 5.5 may want

@@ -49,6 +49,7 @@ function chainAccount(
     status: { [overrides.status ?? 'active']: {} },
     payoutPreset: { standard: {} },
     settlementMode: { organizerOnly: {} },
+    game: { manual: {} },
     champion: overrides.champion ?? PublicKey.default,
     vrfRandomnessAccount: PublicKey.default,
     vrfCommitSlot: { toString: () => '0' },

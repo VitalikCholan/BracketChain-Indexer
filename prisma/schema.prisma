@@ -28,6 +28,12 @@ model Tournament {
   /// Active (the only state the report/settle UI acts on). The frontend reads
   /// this to pick the result flow (organizer-report vs player-reported).
   settlementMode       SettlementMode?
+  /// On-chain game (V1.1). Like `settlementMode`, carried by no event and
+  /// immutable on-chain, so the reconciliation cron backfills it set-once. Null
+  /// until first reconciled; the frontend treats null as `Manual` (the safe,
+  /// no-identity-gate default) until the cache populates. Drives the
+  /// "link Steam before join" gate for game-tagged tournaments (A-11).
+  game                 Game?
   champion             String?
   grossPool            BigInt?
   feeAmount            BigInt?
@@ -208,6 +214,17 @@ enum SettlementMode {
   OrganizerOnly
   PlayerReported
   Oracle
+}
+
+/// Mirrors the on-chain `SupportedGame` enum. **Order is a stable wire
+/// contract** (discriminants 0..4) — never reorder. Phase 1 only ever stores
+/// `Manual` or `Dota2`; the rest are reserved for forward compatibility.
+enum Game {
+  Manual
+  Dota2
+  Cs2Faceit
+  Valorant
+  LoL
 }
 
 enum PayoutKind {

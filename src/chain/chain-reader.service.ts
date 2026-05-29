@@ -132,6 +132,7 @@ export interface DecodedTournament {
   status: { [variant: string]: object };
   payoutPreset: { [variant: string]: object };
   settlementMode: { [variant: string]: object };
+  game: { [variant: string]: object };
   champion: PublicKey;
   /// VRF (Stage B). `vrfRandomnessAccount` is `Pubkey::default()` (all-1s
   /// base58) when no Switchboard randomness is bound; `seedRevealed` flips once
