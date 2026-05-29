@@ -213,6 +213,7 @@ const ENUM_TO_STATUS: Record<string, TournamentStatus> = {
   active: TournamentStatus.Active,
   completed: TournamentStatus.Completed,
   cancelled: TournamentStatus.Cancelled,
+  partialCancelled: TournamentStatus.PartialCancelled,
 };
 
 function anchorEnumToDbStatus(variant: {

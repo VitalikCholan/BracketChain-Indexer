@@ -206,6 +206,7 @@ enum TournamentStatus {
   Active
   Completed
   Cancelled
+  PartialCancelled
 }
 
 /// On-chain `SettlementMode` — how match results are settled. Mirrors the
