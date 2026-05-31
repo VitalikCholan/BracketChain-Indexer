@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   BracketChainClient,
-  PayoutPreset,
   claimResult,
   getTournament,
+  PayoutPreset,
 } from '@bracketchain/sdk';
 
 import { MatchStatus, ProposalSource } from '../generated/prisma';
@@ -123,7 +123,7 @@ export class AutoClaimDriver extends PermissionlessDriver {
     if (isFinal) {
       if (tournament.payoutPreset !== PayoutPreset.WinnerTakesAll) {
         this.logger.log(
-          `auto-claim: final ${m.tournamentAddress} preset=${tournament.payoutPreset} ` +
+          `auto-claim: final ${m.tournamentAddress} preset=${PayoutPreset[tournament.payoutPreset]} ` +
             `requires an organizer-adjudicated 3rd place — finalize via the UI, not the cron (by design)`,
         );
         return false;

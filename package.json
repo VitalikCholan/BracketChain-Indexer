@@ -20,7 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@bracketchain/sdk": "link:../BracketChain-Sdk",
+    "@bracketchain/sdk": "file:./vendor/bracketchain-sdk-0.6.0-dev.tgz",
     "@coral-xyz/anchor": "^0.32.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
