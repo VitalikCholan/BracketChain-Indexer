@@ -103,8 +103,11 @@ await indexer.listTournaments({ status: "Registration", limit: 20 });
 | `DisputeResolved` | Record the organizer/arbitrator override |
 | `MatchLobbyCommitted` | Persist the oracle `MatchCommitment` (lobby + game IDs) |
 | `MatchFeedBound` | Record the bound Switchboard feed on the match |
+| `TournamentPartiallyCancelled` | Flip `Tournament.status` to `PartialCancelled` |
+| `TournamentClosed` | Log terminal close (rent reclaimed on-chain; no DB row needed) |
+| `FinalSettled` | Apply the final-match result envelope (`applyMatchEnvelope`) — arbitrator-adjudicated placements for non-`WinnerTakesAll` finals |
 
-> `MatchReported` is now emitted by **every** finalize path (organizer / player / oracle), so bracket advancement is captured uniformly. `TournamentPartiallyCancelled` / `TournamentClosed` terminal-state changes are picked up by the reconciliation cron (status drift) and the partial-refund / close-terminal drivers.
+> `MatchReported` is now emitted by **every** finalize path (organizer / player / oracle), so bracket advancement is captured uniformly.
 
 ### Event-version guard (gate G9)
 
@@ -116,7 +119,9 @@ Every event's first field is `event_version: u8`. The parser rejects any payload
 
 ### Webhook security
 
-`POST /webhooks/helius` is protected by an HMAC-SHA256 guard (`HeliusHmacGuard`). Requests without a valid `X-Helius-Signature` (or `Authorization`) header — verified against `HELIUS_WEBHOOK_SECRET` over the raw request body using `crypto.timingSafeEqual` — are rejected with **401 Unauthorized**.
+`POST /webhooks/helius` is protected by a shared-secret guard (`HeliusHmacGuard`). Requests without a valid `Authorization: Bearer <secret>` (or `X-Helius-Signature`) header — compared against `HELIUS_WEBHOOK_SECRET` using `crypto.timingSafeEqual` (constant-time, no HMAC) — are rejected with **401 Unauthorized**.
+
+> **Why no HMAC?** Helius sends the raw secret verbatim as the Bearer token, not an HMAC signature over the body. The guard does a constant-time equality check (`timingSafeEqual`) to avoid timing attacks while matching Helius's actual delivery format.
 
 If `HELIUS_WEBHOOK_SECRET` is unset, every webhook request is rejected (fail-closed). The raw body is captured via NestJS's native `{ rawBody: true }` factory option, so no extra middleware is needed.
 
@@ -284,19 +289,18 @@ The `start:prod` script is what Railway runs via [`Procfile`](./Procfile) (`web:
 
 ### Ingest end-to-end locally
 
-The webhook is HMAC-protected — local replays must sign the body with the same `HELIUS_WEBHOOK_SECRET` the service is started with:
+The webhook is protected by a shared-secret Bearer token — send the raw `HELIUS_WEBHOOK_SECRET` value in the `Authorization` header (exactly as Helius does):
 
 ```bash
 BODY=$(cat scripts/test-fixtures/tournament_completed.json)
-SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$HELIUS_WEBHOOK_SECRET" -binary | xxd -p -c 256)
 
-curl -X POST http://localhost:3000/webhooks/helius \
+curl -X POST http://localhost:3001/webhooks/helius \
   -H "Content-Type: application/json" \
-  -H "X-Helius-Signature: $SIG" \
+  -H "Authorization: Bearer $HELIUS_WEBHOOK_SECRET" \
   --data-raw "$BODY"
 ```
 
-The guard compares with `crypto.timingSafeEqual` against the raw body NestJS captured via `{ rawBody: true }`, so any in-flight mutation (e.g. JSON re-serialization) breaks verification.
+The guard uses `crypto.timingSafeEqual` to compare the header value against `HELIUS_WEBHOOK_SECRET` — constant-time, no HMAC computation over the body.
 
 Or test event parsing in isolation via the helper script (bypasses HTTP / HMAC entirely):
 
