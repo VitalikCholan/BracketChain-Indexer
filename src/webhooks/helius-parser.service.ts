@@ -8,6 +8,7 @@ import {
   MatchStatus,
   PayoutKind,
   PayoutPreset,
+  Prisma,
   ProposalSource,
   TournamentStatus,
 } from '../generated/prisma';
@@ -580,10 +581,24 @@ export class HeliusParserService implements OnModuleInit {
     const address = pubkeyToString(data.tournament);
     const chainSlotAtWrite = extractSlot(tx);
 
+    // M-1: cancellation is a terminal state — stamp `completedAt` so the
+    // close-terminal rent-reclaim cron (gate G7) and the reconciliation
+    // recent-terminal window treat it like any other terminal tournament.
+    // Without this the column stayed null and cancelled tournaments were never
+    // closed. Prefer the on-chain `cancelled_at`; fall back to block time, then now.
+    const txTimestamp = tx.timestamp ?? tx.blockTime;
+    const completedAt =
+      data.cancelled_at != null
+        ? new Date(toNumber(data.cancelled_at) * 1000)
+        : txTimestamp
+          ? new Date(txTimestamp * 1000)
+          : new Date();
+
     await this.prisma.tournament.update({
       where: { address },
       data: {
         status: TournamentStatus.Cancelled,
+        completedAt,
         chainSlotAtWrite,
       },
     });
@@ -694,42 +709,51 @@ export class HeliusParserService implements OnModuleInit {
       return false;
     }
 
-    const where = {
-      tournamentAddress_bracket_round_matchIndex: {
-        tournamentAddress,
-        bracket,
-        round,
-        matchIndex,
-      },
+    // M-3: atomic terminal-status guard. The old read-then-write
+    // (findUnique(status) → upsert) had a TOCTOU gap: two concurrent webhook
+    // POSTs for the same match could read a non-terminal status and then both
+    // write, letting a redelivered earlier-stage event clobber Completed back
+    // to PendingConfirmation / Disputed. A conditional `updateMany` closes the
+    // gap — under READ COMMITTED the UPDATE takes a row lock and re-evaluates
+    // `status != Completed` at lock time, so once a row is Completed no
+    // envelope write can move it back.
+    const guard = {
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      status: { not: MatchStatus.Completed },
     };
-    const existing = await this.prisma.match.findUnique({
-      where,
-      select: { status: true },
-    });
-    // Terminal-status guard: once Completed, a redelivered earlier-stage event
-    // must not move the row back to PendingConfirmation / Disputed.
-    const status =
-      existing?.status === MatchStatus.Completed
-        ? MatchStatus.Completed
-        : args.desiredStatus;
+    const data = {
+      status: args.desiredStatus,
+      chainSlotAtWrite: args.chainSlotAtWrite,
+      ...args.envelope,
+    };
 
-    await this.prisma.match.upsert({
-      where,
-      create: {
-        tournamentAddress,
-        bracket,
-        round,
-        matchIndex,
-        status,
-        chainSlotAtWrite: args.chainSlotAtWrite,
-        ...args.envelope,
-      },
-      update: {
-        status,
-        chainSlotAtWrite: args.chainSlotAtWrite,
-        ...args.envelope,
-      },
+    const { count } = await this.prisma.match.updateMany({
+      where: guard,
+      data,
     });
+    if (count > 0) return true;
+
+    // count === 0 → the row is missing OR already Completed. Try to create it;
+    // a unique-constraint violation means it exists, so re-run the guarded
+    // update (handles a concurrent create racing us into existence). A second
+    // count === 0 means it is Completed — the intended no-op.
+    try {
+      await this.prisma.match.create({
+        data: { tournamentAddress, bracket, round, matchIndex, ...data },
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        await this.prisma.match.updateMany({ where: guard, data });
+      } else {
+        throw e;
+      }
+    }
     return true;
   }
 

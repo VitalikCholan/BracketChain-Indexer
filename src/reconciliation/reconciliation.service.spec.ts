@@ -63,12 +63,24 @@ function makePrismaMock(
     status: TournamentStatus;
     champion: string | null;
     chainSlotAtWrite: bigint;
+    completedAt?: Date | null;
+    completedTxSig?: string | null;
   }>,
+  payoutOpts: {
+    existing?: Array<{ tournamentAddress: string }>;
+    created?: number;
+  } = {},
 ) {
   return {
     tournament: {
       findMany: jest.fn().mockResolvedValue(candidates),
       update: jest.fn().mockResolvedValue(undefined),
+    },
+    payout: {
+      findMany: jest.fn().mockResolvedValue(payoutOpts.existing ?? []),
+      createMany: jest
+        .fn()
+        .mockResolvedValue({ count: payoutOpts.created ?? 0 }),
     },
   };
 }
@@ -76,10 +88,20 @@ function makePrismaMock(
 function makeChainReader(
   decoded: Array<DecodedTournament | null>,
   slot: number = CURRENT_SLOT,
+  completionPayouts: {
+    txSignature: string;
+    payouts: Array<{
+      recipient: string;
+      amount: bigint;
+      kind: string;
+      placement: number | null;
+    }>;
+  } | null = null,
 ) {
   return {
     fetchTournaments: jest.fn().mockResolvedValue(decoded),
     getSlot: jest.fn().mockResolvedValue(slot),
+    fetchCompletionPayouts: jest.fn().mockResolvedValue(completionPayouts),
   };
 }
 
@@ -327,6 +349,114 @@ describe('ReconciliationService', () => {
     });
   });
 
+  describe('payout backfill (M-2)', () => {
+    it('reconstructs payouts for a Completed tournament with no payout rows', async () => {
+      const prisma = makePrismaMock(
+        [
+          {
+            address: PDA_A,
+            status: TournamentStatus.Completed,
+            champion: null,
+            chainSlotAtWrite: FRESH_SLOT,
+            completedAt: new Date(),
+            completedTxSig: 'completeSig123',
+          },
+        ],
+        { existing: [], created: 2 },
+      );
+      const chain = makeChainReader(
+        [chainAccount({ status: 'completed' })],
+        CURRENT_SLOT,
+        {
+          txSignature: 'completeSig123',
+          payouts: [
+            {
+              recipient: CHAMPION_A,
+              amount: 900n,
+              kind: 'Prize',
+              placement: 1,
+            },
+            {
+              recipient: CHAMPION_B,
+              amount: 100n,
+              kind: 'Fee',
+              placement: null,
+            },
+          ],
+        },
+      );
+      const service = makeService(prisma, chain);
+
+      await service.reconcile();
+
+      // No status/champion/slot drift → no tournament.update, only payout backfill.
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+      expect(chain.fetchCompletionPayouts).toHaveBeenCalledTimes(1);
+      const [pdaArg, sigArg] = chain.fetchCompletionPayouts.mock.calls[0];
+      expect((pdaArg as PublicKey).toBase58()).toBe(PDA_A);
+      expect(sigArg).toBe('completeSig123');
+      expect(prisma.payout.createMany).toHaveBeenCalledTimes(1);
+      const createArg = prisma.payout.createMany.mock.calls[0][0] as {
+        data: Array<{ tournamentAddress: string; txSignature: string }>;
+        skipDuplicates: boolean;
+      };
+      expect(createArg.data).toHaveLength(2);
+      expect(createArg.data[0].tournamentAddress).toBe(PDA_A);
+      expect(createArg.skipDuplicates).toBe(true);
+      expect(service.getStatus().lastReconcilePayoutsBackfilled).toBe(1);
+    });
+
+    it('skips backfill when the Completed tournament already has payout rows', async () => {
+      const prisma = makePrismaMock(
+        [
+          {
+            address: PDA_A,
+            status: TournamentStatus.Completed,
+            champion: null,
+            chainSlotAtWrite: FRESH_SLOT,
+            completedAt: new Date(),
+            completedTxSig: 'completeSig123',
+          },
+        ],
+        { existing: [{ tournamentAddress: PDA_A }] },
+      );
+      const chain = makeChainReader([chainAccount({ status: 'completed' })]);
+      const service = makeService(prisma, chain);
+
+      await service.reconcile();
+
+      expect(chain.fetchCompletionPayouts).not.toHaveBeenCalled();
+      expect(prisma.payout.createMany).not.toHaveBeenCalled();
+      expect(service.getStatus().lastReconcilePayoutsBackfilled).toBe(0);
+    });
+
+    it('no-op (no error) when no completion event is reconstructable', async () => {
+      const prisma = makePrismaMock(
+        [
+          {
+            address: PDA_A,
+            status: TournamentStatus.Completed,
+            champion: null,
+            chainSlotAtWrite: FRESH_SLOT,
+            completedAt: new Date(),
+            completedTxSig: null,
+          },
+        ],
+        { existing: [] },
+      );
+      // fetchCompletionPayouts defaults to null → unrecoverable, skip.
+      const chain = makeChainReader([chainAccount({ status: 'completed' })]);
+      const service = makeService(prisma, chain);
+
+      await service.reconcile();
+
+      expect(chain.fetchCompletionPayouts).toHaveBeenCalledTimes(1);
+      expect(prisma.payout.createMany).not.toHaveBeenCalled();
+      expect(service.getStatus().lastReconcilePayoutsBackfilled).toBe(0);
+      expect(service.getStatus().lastReconcileError).toBeNull();
+    });
+  });
+
   describe('error handling', () => {
     it('captures error to lastReconcileError without throwing', async () => {
       const prisma = makePrismaMock([]);
@@ -347,6 +477,7 @@ describe('ReconciliationService', () => {
         lastReconcileAt: null,
         lastReconcileScanned: 0,
         lastReconcileTouched: 0,
+        lastReconcilePayoutsBackfilled: 0,
         lastReconcileError: null,
       });
     });

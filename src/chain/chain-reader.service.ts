@@ -1,8 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { BorshAccountsCoder, Idl } from '@coral-xyz/anchor';
+import {
+  BorshAccountsCoder,
+  BorshCoder,
+  EventParser,
+  Idl,
+} from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 
 import idlJson from '../idl/bracket_chain.json';
+import { PayoutKind } from '../generated/prisma';
 
 /**
  * Phase 5.4: minimal Solana chain reader for the reconciliation cron.
@@ -19,6 +25,9 @@ export class ChainReaderService implements OnModuleInit {
   private readonly logger = new Logger(ChainReaderService.name);
   private connection!: Connection;
   private coder!: BorshAccountsCoder;
+  /// Event decoder for the M-2 payout-replay path (reconstructs Payout rows
+  /// from a dropped TournamentCompleted webhook by re-parsing the on-chain tx).
+  private eventParser!: EventParser;
   private programId!: PublicKey;
 
   onModuleInit() {
@@ -34,6 +43,10 @@ export class ChainReaderService implements OnModuleInit {
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.coder = new BorshAccountsCoder(idlJson as Idl);
     this.programId = new PublicKey(programIdStr);
+    this.eventParser = new EventParser(
+      this.programId,
+      new BorshCoder(idlJson as Idl),
+    );
 
     this.logger.log(
       `ChainReader initialized — rpc=${maskUrl(rpcUrl)}, programId=${programIdStr}`,
@@ -104,6 +117,134 @@ export class ChainReaderService implements OnModuleInit {
     }
     return out;
   }
+
+  /**
+   * M-2: reconstruct a completed tournament's Payout rows from chain when the
+   * `TournamentCompleted` webhook was dropped (reconciliation backfills the
+   * status, but the Payout table is left empty and the UI shows "Pending"
+   * forever). The per-placement breakdown lives ONLY in the event — no account
+   * retains it — so we replay the completion transaction and re-parse its logs.
+   *
+   * `knownSig` is the cached `completedTxSig` when the completion webhook
+   * arrived but yielded 0 payouts; when the webhook was fully dropped it is
+   * null and we scan the PDA's recent signatures for the completion tx.
+   *
+   * Returns null when no completion event can be found, or when the event
+   * predates `placement_payouts` (pre-upgrade events carried no breakdown —
+   * unrecoverable from logs alone). Derivation mirrors
+   * HeliusParserService.handleTournamentCompleted; kept in sync deliberately.
+   */
+  async fetchCompletionPayouts(
+    pda: PublicKey,
+    knownSig: string | null,
+  ): Promise<{ txSignature: string; payouts: ReconstructedPayout[] } | null> {
+    const pdaStr = pda.toBase58();
+    const signatures = knownSig
+      ? [knownSig]
+      : (await this.connection.getSignaturesForAddress(pda, { limit: 25 }))
+          .filter((s) => !s.err)
+          .map((s) => s.signature);
+
+    for (const sig of signatures) {
+      const tx = await this.connection.getTransaction(sig, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      });
+      const logs = tx?.meta?.logMessages;
+      if (!logs || logs.length === 0) continue;
+
+      for (const evt of this.eventParser.parseLogs(logs)) {
+        if (evt.name !== 'TournamentCompleted') continue;
+        const d = evt.data as Record<string, unknown>;
+        if (eventPubkey(d.tournament) !== pdaStr) continue;
+
+        const fee = eventBigInt(d.fee_amount);
+        const payouts: ReconstructedPayout[] = [];
+        for (const p of parsePlacementPayouts(d.placement_payouts)) {
+          payouts.push({
+            recipient: p.recipient,
+            amount: p.amount,
+            kind: PayoutKind.Prize,
+            placement: p.place,
+          });
+        }
+        const treasury =
+          d.treasury_recipient != null
+            ? eventPubkey(d.treasury_recipient)
+            : null;
+        if (treasury && fee > 0n) {
+          payouts.push({
+            recipient: treasury,
+            amount: fee,
+            kind: PayoutKind.Fee,
+            placement: null,
+          });
+        }
+        return payouts.length > 0 ? { txSignature: sig, payouts } : null;
+      }
+    }
+    return null;
+  }
+}
+
+/** A Payout row reconstructed from a replayed TournamentCompleted event (M-2). */
+export interface ReconstructedPayout {
+  recipient: string;
+  amount: bigint;
+  kind: PayoutKind;
+  placement: number | null;
+}
+
+// ── event-decode helpers (mirror helius-parser.service.ts coercers) ──────────
+
+function eventPubkey(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof PublicKey) return value.toBase58();
+  if (
+    value &&
+    typeof (value as { toString?: () => string }).toString === 'function'
+  ) {
+    return (value as { toString: () => string }).toString();
+  }
+  throw new Error('cannot coerce value to pubkey string');
+}
+
+function eventBigInt(value: unknown): bigint {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' || typeof value === 'string')
+    return BigInt(value);
+  if (
+    value &&
+    typeof (value as { toString?: () => string }).toString === 'function'
+  ) {
+    return BigInt((value as { toString: () => string }).toString());
+  }
+  return 0n;
+}
+
+function parsePlacementPayouts(
+  raw: unknown,
+): Array<{ place: number; recipient: string; amount: bigint }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ place: number; recipient: string; amount: bigint }> = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    try {
+      const place =
+        typeof e.place === 'number'
+          ? e.place
+          : Number((e.place as { toString(): string }).toString());
+      out.push({
+        place,
+        recipient: eventPubkey(e.recipient),
+        amount: eventBigInt(e.amount),
+      });
+    } catch {
+      // Skip malformed rows — best-effort.
+    }
+  }
+  return out;
 }
 
 /**

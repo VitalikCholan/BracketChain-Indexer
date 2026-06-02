@@ -3,7 +3,10 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PublicKey } from '@solana/web3.js';
 
 import { PrismaService } from '../prisma.service';
-import { ChainReaderService } from '../chain/chain-reader.service';
+import {
+  ChainReaderService,
+  type DecodedTournament,
+} from '../chain/chain-reader.service';
 import {
   Game,
   PayoutPreset,
@@ -34,6 +37,7 @@ export class ReconciliationService {
   private lastReconcileTouched = 0;
   private lastReconcileError: string | null = null;
   private lastReconcileScanned = 0;
+  private lastReconcilePayoutsBackfilled = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -54,10 +58,12 @@ export class ReconciliationService {
       this.lastReconcileAt = new Date();
       this.lastReconcileTouched = stats.touched;
       this.lastReconcileScanned = stats.scanned;
+      this.lastReconcilePayoutsBackfilled = stats.payoutsBackfilled;
       this.lastReconcileError = null;
-      if (stats.touched > 0) {
+      if (stats.touched > 0 || stats.payoutsBackfilled > 0) {
         this.logger.log(
-          `Reconciliation: scanned=${stats.scanned}, touched=${stats.touched}`,
+          `Reconciliation: scanned=${stats.scanned}, touched=${stats.touched}, ` +
+            `payoutsBackfilled=${stats.payoutsBackfilled}`,
         );
       }
     } catch (err) {
@@ -75,6 +81,7 @@ export class ReconciliationService {
       lastReconcileAt: this.lastReconcileAt?.toISOString() ?? null,
       lastReconcileScanned: this.lastReconcileScanned,
       lastReconcileTouched: this.lastReconcileTouched,
+      lastReconcilePayoutsBackfilled: this.lastReconcilePayoutsBackfilled,
       lastReconcileError: this.lastReconcileError,
     };
   }
@@ -84,6 +91,7 @@ export class ReconciliationService {
   private async runReconciliation(): Promise<{
     scanned: number;
     touched: number;
+    payoutsBackfilled: number;
   }> {
     // Scope: every non-terminal tournament + completed/cancelled within the
     // last hour (catches late-arriving Cancelled webhook). We bound at 50
@@ -118,11 +126,13 @@ export class ReconciliationService {
         chainSlotAtWrite: true,
         settlementMode: true,
         game: true,
+        completedAt: true,
+        completedTxSig: true,
       },
     });
 
     if (candidates.length === 0) {
-      return { scanned: 0, touched: 0 };
+      return { scanned: 0, touched: 0, payoutsBackfilled: 0 };
     }
 
     // Batch fetch — one getMultipleAccountsInfo for up to 50 PDAs.
@@ -175,6 +185,7 @@ export class ReconciliationService {
         champion?: string | null;
         settlementMode?: SettlementMode;
         game?: Game;
+        completedAt?: Date;
         chainSlotAtWrite: bigint;
       } = { chainSlotAtWrite: slot };
 
@@ -183,6 +194,22 @@ export class ReconciliationService {
         this.logger.warn(
           `Drift: ${dbRow.address} status DB=${dbRow.status} → chain=${chainStatus}`,
         );
+      }
+
+      // M-1: when reconciliation is the one moving a row into a terminal state
+      // (dropped Completed/Cancelled webhook) and completedAt is still unset,
+      // stamp it — otherwise the close-terminal rent-reclaim cron, which gates
+      // on `completedAt <= cutoff`, would never pick the row up.
+      const becomesTerminal =
+        statusDrift &&
+        (chainStatus === TournamentStatus.Completed ||
+          chainStatus === TournamentStatus.Cancelled);
+      if (becomesTerminal && dbRow.completedAt == null) {
+        const chainCompletedSec = Number(chain.completedAt.toString());
+        data.completedAt =
+          chainCompletedSec > 0
+            ? new Date(chainCompletedSec * 1000)
+            : new Date();
       }
       if (championDrift) {
         data.champion = chainChampion;
@@ -201,7 +228,98 @@ export class ReconciliationService {
       touched++;
     }
 
-    return { scanned: candidates.length, touched };
+    const payoutsBackfilled = await this.backfillMissingPayouts(
+      candidates,
+      chainAccounts,
+    );
+
+    return { scanned: candidates.length, touched, payoutsBackfilled };
+  }
+
+  /**
+   * M-2: reconstruct Payout rows for Completed tournaments whose Payout table
+   * is empty — the symptom of a dropped `TournamentCompleted` webhook (status
+   * gets backfilled above, but payouts only ever came from that event). The
+   * per-placement breakdown lives only in the event, so {@link ChainReaderService}
+   * replays the completion tx from chain. Each reconstruction is isolated: a
+   * failure to rebuild one tournament's payouts never aborts the cron tick.
+   */
+  private async backfillMissingPayouts(
+    candidates: Array<{
+      address: string;
+      status: TournamentStatus;
+      completedTxSig: string | null;
+    }>,
+    chainAccounts: Array<DecodedTournament | null>,
+  ): Promise<number> {
+    // A tournament is in scope if it is Completed by either the DB or chain.
+    const completed: Array<{ address: string; completedTxSig: string | null }> =
+      [];
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      const chain = chainAccounts[i];
+      const chainStatus = chain ? anchorEnumToDbStatus(chain.status) : null;
+      if (
+        chainStatus === TournamentStatus.Completed ||
+        c.status === TournamentStatus.Completed
+      ) {
+        completed.push({
+          address: c.address,
+          completedTxSig: c.completedTxSig,
+        });
+      }
+    }
+    if (completed.length === 0) return 0;
+
+    // Which of those already have payout rows? One query, then set-difference.
+    const existing = await this.prisma.payout.findMany({
+      where: { tournamentAddress: { in: completed.map((c) => c.address) } },
+      select: { tournamentAddress: true },
+      distinct: ['tournamentAddress'],
+    });
+    const hasPayout = new Set(existing.map((e) => e.tournamentAddress));
+    const missing = completed.filter((c) => !hasPayout.has(c.address));
+    if (missing.length === 0) return 0;
+
+    let backfilled = 0;
+    for (const m of missing) {
+      try {
+        const result = await this.chainReader.fetchCompletionPayouts(
+          new PublicKey(m.address),
+          m.completedTxSig,
+        );
+        if (!result) {
+          this.logger.warn(
+            `Payout backfill: ${m.address} — no reconstructable completion event, skipping`,
+          );
+          continue;
+        }
+        // skipDuplicates keeps this idempotent against a late webhook arriving
+        // concurrently (same (txSignature, recipient, kind) unique index).
+        const created = await this.prisma.payout.createMany({
+          data: result.payouts.map((p) => ({
+            tournamentAddress: m.address,
+            recipient: p.recipient,
+            amount: p.amount,
+            kind: p.kind,
+            placement: p.placement,
+            txSignature: result.txSignature,
+          })),
+          skipDuplicates: true,
+        });
+        if (created.count > 0) {
+          backfilled++;
+          this.logger.log(
+            `Payout backfill: ${m.address} → inserted ${created.count} rows (tx=${result.txSignature})`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Payout backfill: ${m.address} failed — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return backfilled;
   }
 }
 
