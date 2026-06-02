@@ -435,7 +435,7 @@ packages:
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
 
   '@bracketchain/sdk@file:vendor/bracketchain-sdk-0.6.0-dev.tgz':
-    resolution: {integrity: sha512-HnaPyN5iMjDudunj6N6PQBb30D74l797ZKWacAk81PcIsHQMrzt6sd3yVx11pwS7mvdqmtCdP7DKEdjn/wRaPA==, tarball: file:vendor/bracketchain-sdk-0.6.0-dev.tgz}
+    resolution: {integrity: sha512-ecQIh9GChDvL7bc8yUXXlfZBq7nPteHFkHJ44tno4DJ7njNeIuNm+nqTLakGnXmGe1HbpwS3S9nSpFgUGFbMsg==, tarball: file:vendor/bracketchain-sdk-0.6.0-dev.tgz}
     version: 0.6.0-dev
 
   '@colors/colors@1.5.0':

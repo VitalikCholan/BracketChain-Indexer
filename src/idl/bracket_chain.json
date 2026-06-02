@@ -393,6 +393,107 @@
       ]
     },
     {
+      "name": "close_tournament",
+      "docs": [
+        "Permissionless rent reclaim for a terminal tournament (Stage D, D-3).",
+        "Closes child PDAs passed in `remaining_accounts`; `close_root` closes the",
+        "vault + Tournament PDA on the final call. All rent → organizer."
+      ],
+      "discriminator": [
+        14,
+        80,
+        54,
+        9,
+        221,
+        239,
+        201,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless — anyone may trigger cleanup; the `cleanup-payer` cron",
+            "signs in practice. Rent never goes here (see `organizer`)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer",
+          "docs": [
+            "Rent destination for every closed account. Pinned to the organizer."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "close_root",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "commit_match_lobby",
       "docs": [
         "Organizer (Stage C / V1.2): commit a match to a game lobby pre-launch."
@@ -1433,13 +1534,15 @@
         {
           "name": "authority",
           "writable": true,
-          "signer": true,
-          "relations": [
-            "protocol_config"
-          ]
+          "signer": true
         },
         {
           "name": "protocol_config",
+          "docs": [
+            "layout (107 bytes) is shorter than the current INIT_SPACE and would",
+            "fail Anchor's deserialization. Program ownership + discriminator +",
+            "authority are validated below."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1533,6 +1636,162 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "partial_cancel_tournament",
+      "docs": [
+        "Organizer-signed mid-tournament cancellation (Stage E, E-2). Flips an",
+        "`Active` tournament to `PartialCancelled`; refunds run via",
+        "`partial_refund_chunk`."
+      ],
+      "discriminator": [
+        194,
+        241,
+        74,
+        25,
+        111,
+        229,
+        230,
+        141
+      ],
+      "accounts": [
+        {
+          "name": "organizer",
+          "signer": true,
+          "relations": [
+            "tournament"
+          ]
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "partial_refund_chunk",
+      "docs": [
+        "Permissionless full-refund processing for a partially-cancelled",
+        "tournament (Stage E, E-3). Refunds every participant their full entry",
+        "fee + returns the organizer deposit. Chunked via `remaining_accounts`."
+      ],
+      "discriminator": [
+        145,
+        61,
+        45,
+        143,
+        170,
+        57,
+        149,
+        244
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer_token_account",
+          "docs": [
+            "Organizer's ATA — required only on the call that returns the deposit",
+            "(`organizer_deposit > 0 && !organizer_deposit_refunded`). Validated",
+            "in-handler so later refund-only chunks may pass `None`."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -2300,6 +2559,218 @@
       ]
     },
     {
+      "name": "settle_final",
+      "docs": [
+        "Arbitrator-signed settlement of a **non-WinnerTakesAll final** (H-1 fix).",
+        "The winner is pinned to the match's existing trustless proposal",
+        "(`proposed_winner`); the arbitrator only adjudicates placements 3..N among",
+        "the semifinal losers — exactly the decision-2a trust boundary, now an",
+        "on-chain invariant. Preconditions mirror `claim_result` (undisputed",
+        "proposal, dispute window elapsed). Disputed finals use `resolve_dispute`;",
+        "WinnerTakesAll finals stay permissionlessly claimable via `claim_result`."
+      ],
+      "discriminator": [
+        178,
+        70,
+        107,
+        219,
+        7,
+        103,
+        82,
+        187
+      ],
+      "accounts": [
+        {
+          "name": "arbitrator",
+          "docs": [
+            "The tournament's arbitrator (defaults to the organizer at create-time;",
+            "Squads-multisig reassignment is V1.3). The single point of trust — only",
+            "it may adjudicate the lower placements of a non-WTA final."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tournament",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  117,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament.organizer",
+                "account": "Tournament"
+              },
+              {
+                "kind": "account",
+                "path": "tournament.name",
+                "account": "Tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "next_match",
+          "docs": [
+            "Final-match only — pass `None`. `finalize_match` requires `next_match`",
+            "absent on the final and rejects a non-final that carries placements."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "participant_a",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_a",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "participant_b",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  116,
+                  105,
+                  99,
+                  105,
+                  112,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              },
+              {
+                "kind": "account",
+                "path": "match_account.player_b",
+                "account": "MatchNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tournament"
+              }
+            ]
+          }
+        },
+        {
+          "name": "organizer_token_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "placements",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
       "name": "start_tournament",
       "discriminator": [
         164,
@@ -2445,6 +2916,19 @@
       ]
     },
     {
+      "name": "FinalSettled",
+      "discriminator": [
+        131,
+        38,
+        109,
+        208,
+        62,
+        169,
+        155,
+        0
+      ]
+    },
+    {
       "name": "MatchFeedBound",
       "discriminator": [
         168,
@@ -2562,6 +3046,19 @@
       ]
     },
     {
+      "name": "TournamentClosed",
+      "discriminator": [
+        246,
+        137,
+        155,
+        89,
+        226,
+        38,
+        87,
+        8
+      ]
+    },
+    {
       "name": "TournamentCompleted",
       "discriminator": [
         67,
@@ -2585,6 +3082,19 @@
         64,
         97,
         0
+      ]
+    },
+    {
+      "name": "TournamentPartiallyCancelled",
+      "discriminator": [
+        51,
+        32,
+        22,
+        243,
+        244,
+        23,
+        111,
+        255
       ]
     },
     {
@@ -2876,6 +3386,31 @@
       "code": 6054,
       "name": "BadProposalSource",
       "msg": "Proposal source is not valid for this action"
+    },
+    {
+      "code": 6055,
+      "name": "InvalidCustomPayout",
+      "msg": "Custom payout split is invalid (bps must sum to 10000, be gapless, and fund the winner)"
+    },
+    {
+      "code": 6056,
+      "name": "UntrustedMultiPlacementFinal",
+      "msg": "A multi-placement (non-WinnerTakesAll) final may only be finalized by a trusted signer (settle_final / report_result / resolve_dispute), not a permissionless or counterparty path"
+    },
+    {
+      "code": 6057,
+      "name": "BracketSeedMismatch",
+      "msg": "Bracket descriptor is inconsistent with the VRF-derived seed permutation"
+    },
+    {
+      "code": 6058,
+      "name": "NonParticipantInBracket",
+      "msg": "Account supplied for a bracket slot is not a Participant of this tournament"
+    },
+    {
+      "code": 6059,
+      "name": "InvalidOracleConfig",
+      "msg": "Oracle config out of bounds (min_oracle_samples must be >= 1; max_stale_slots must not exceed the staleness ceiling)"
     }
   ],
   "types": [
@@ -2914,6 +3449,53 @@
           },
           {
             "name": "resolved_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FinalSettled",
+      "docs": [
+        "Arbitrator-adjudicated settlement of a non-`WinnerTakesAll` final (H-1 fix,",
+        "`settle_final`). The winner is pinned to the match's trustless proposal; only",
+        "placements 3..N are the arbitrator's call. Distinct from `ResultClaimed` so",
+        "the indexer can surface \"settled by arbitrator\" vs a permissionless claim.",
+        "`MatchReported` + `TournamentCompleted` still fire from `finalize_match`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "bracket",
+            "type": "u8"
+          },
+          {
+            "name": "round",
+            "type": "u8"
+          },
+          {
+            "name": "match_index",
+            "type": "u16"
+          },
+          {
+            "name": "arbitrator",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "settled_at",
             "type": "i64"
           }
         ]
@@ -3353,9 +3935,9 @@
           {
             "name": "identity_hash",
             "docs": [
-              "The SAS attestation's 32-byte `identity_bytes`, stored verbatim (the issuer",
-              "fingerprint = SHA-256(steam_id_64 LE); no on-chain hashing). Zero-bytes for",
-              "`Manual`-game tournaments (no attestation required)."
+              "The SAS attestation's 32-byte `identity_bytes`, stored verbatim (the",
+              "issuer fingerprint = SHA-256(steam_id_64 LE); no on-chain hashing).",
+              "Zero-bytes for `Manual`-game tournaments (no attestation required)."
             ],
             "type": {
               "array": [
@@ -3432,6 +4014,17 @@
           },
           {
             "name": "Deep"
+          },
+          {
+            "name": "Custom",
+            "fields": [
+              {
+                "array": [
+                  "u16",
+                  8
+                ]
+              }
+            ]
           }
         ]
       }
@@ -4002,6 +4595,41 @@
       }
     },
     {
+      "name": "TournamentClosed",
+      "docs": [
+        "Rent-reclaim progress for a terminal tournament (Stage D, D-3). Emitted on",
+        "every `close_tournament` chunk; `root_closed` flips true on the final call",
+        "that closes the vault + Tournament PDA itself."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "accounts_closed",
+            "docs": [
+              "Child PDAs (MatchNode | Participant) closed in this call."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "root_closed",
+            "docs": [
+              "True once the vault + Tournament PDA have been closed (terminal call)."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "TournamentCompleted",
       "type": {
         "kind": "struct",
@@ -4115,6 +4743,34 @@
       }
     },
     {
+      "name": "TournamentPartiallyCancelled",
+      "docs": [
+        "Mid-tournament cancellation (Stage E, E-2). The bracket is frozen; refunds",
+        "are then processed permissionlessly by `partial_refund_chunk`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event_version",
+            "type": "u8"
+          },
+          {
+            "name": "tournament",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "cancelled_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "TournamentStarted",
       "type": {
         "kind": "struct",
@@ -4170,6 +4826,9 @@
           },
           {
             "name": "Cancelled"
+          },
+          {
+            "name": "PartialCancelled"
           }
         ]
       }

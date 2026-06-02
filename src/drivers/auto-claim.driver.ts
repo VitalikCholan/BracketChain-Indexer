@@ -4,7 +4,6 @@ import {
   BracketChainClient,
   claimResult,
   getTournament,
-  PayoutPreset,
 } from '@bracketchain/sdk';
 
 import { MatchStatus, ProposalSource } from '../generated/prisma';
@@ -129,9 +128,9 @@ export class AutoClaimDriver extends PermissionlessDriver {
 
     let placements: never[] | undefined;
     if (isFinal) {
-      if (tournament.payoutPreset !== PayoutPreset.WinnerTakesAll) {
+      if (tournament.payoutPreset.__kind !== 'WinnerTakesAll') {
         this.logger.log(
-          `auto-claim: final ${m.tournamentAddress} preset=${PayoutPreset[tournament.payoutPreset]} ` +
+          `auto-claim: final ${m.tournamentAddress} preset=${tournament.payoutPreset.__kind} ` +
             `requires an organizer-adjudicated 3rd place — finalize via the UI, not the cron (by design)`,
         );
         return false;

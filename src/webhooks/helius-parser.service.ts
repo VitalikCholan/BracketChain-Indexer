@@ -20,6 +20,7 @@ import type {
 import type {
   BracketChainEvent,
   DisputeResolvedEvent,
+  FinalSettledEvent,
   MatchFeedBoundEvent,
   MatchLobbyCommittedEvent,
   MatchReportedEvent,
@@ -29,8 +30,10 @@ import type {
   ResultDisputedEvent,
   ResultProposedEvent,
   TournamentCancelledEvent,
+  TournamentClosedEvent,
   TournamentCompletedEvent,
   TournamentCreatedEvent,
+  TournamentPartiallyCancelledEvent,
   TournamentStartedEvent,
 } from './event-types';
 
@@ -242,6 +245,15 @@ export class HeliusParserService implements OnModuleInit {
         return true;
       case 'MatchFeedBound':
         await this.handleMatchFeedBound(evt.data, tx, signature);
+        return true;
+      case 'TournamentPartiallyCancelled':
+        await this.handleTournamentPartiallyCancelled(evt.data, tx, signature);
+        return true;
+      case 'TournamentClosed':
+        await this.handleTournamentClosed(evt.data, signature);
+        return true;
+      case 'FinalSettled':
+        await this.handleFinalSettled(evt.data, tx, signature);
         return true;
       default:
         // Unknown event — ignore. Future events should be added explicitly.
@@ -979,6 +991,82 @@ export class HeliusParserService implements OnModuleInit {
       this.logger.log(
         `matchFeedBound ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
           `feed=${switchboardFeed} (signature=${signature})`,
+      );
+    }
+  }
+
+  private async handleTournamentPartiallyCancelled(
+    data: TournamentPartiallyCancelledEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const address = pubkeyToString(data.tournament);
+    const chainSlotAtWrite = extractSlot(tx);
+    const txTimestamp = tx.timestamp ?? tx.blockTime;
+    const completedAt =
+      data.cancelled_at != null
+        ? new Date(toNumber(data.cancelled_at) * 1000)
+        : txTimestamp
+          ? new Date(txTimestamp * 1000)
+          : new Date();
+
+    await this.prisma.tournament.update({
+      where: { address },
+      data: {
+        status: TournamentStatus.PartialCancelled,
+        completedAt,
+        chainSlotAtWrite,
+      },
+    });
+    this.logger.log(
+      `tournamentPartiallyCancelled ${address} (signature=${signature})`,
+    );
+  }
+
+  private async handleTournamentClosed(
+    data: TournamentClosedEvent,
+    signature: string,
+  ): Promise<void> {
+    const address = pubkeyToString(data.tournament);
+    this.logger.log(
+      `tournamentClosed ${address} accountsClosed=${toNumber(data.accounts_closed)} ` +
+        `rootClosed=${data.root_closed} (signature=${signature})`,
+    );
+  }
+
+  private async handleFinalSettled(
+    data: FinalSettledEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<void> {
+    const tournamentAddress = pubkeyToString(data.tournament);
+    const bracket = toNumber(data.bracket);
+    const round = toNumber(data.round);
+    const matchIndex = toNumber(data.match_index);
+    const arbitrator = pubkeyToString(data.arbitrator);
+    const winner = pubkeyToString(data.winner);
+    const settledAt = new Date(toNumber(data.settled_at) * 1000);
+
+    // Same tx also emits MatchReported + TournamentCompleted which do the
+    // heavy lifting. applyMatchEnvelope here ensures ordering within the
+    // batch is irrelevant.
+    const ok = await this.applyMatchEnvelope({
+      tournamentAddress,
+      bracket,
+      round,
+      matchIndex,
+      desiredStatus: MatchStatus.Completed,
+      chainSlotAtWrite: extractSlot(tx),
+      envelope: {
+        winner,
+        reportedAt: settledAt,
+        reportedTxSig: signature,
+      },
+    });
+    if (ok) {
+      this.logger.log(
+        `finalSettled ${tournamentAddress} b${bracket}r${round}m${matchIndex} ` +
+          `arbitrator=${arbitrator} → winner=${winner}`,
       );
     }
   }

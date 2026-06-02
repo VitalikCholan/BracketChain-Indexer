@@ -176,6 +176,28 @@ export interface MatchFeedBoundEvent {
   switchboard_feed: EventPubkey;
 }
 
+export interface TournamentPartiallyCancelledEvent {
+  tournament: EventPubkey;
+  authority: EventPubkey;
+  cancelled_at: EventNumber;
+}
+
+export interface TournamentClosedEvent {
+  tournament: EventPubkey;
+  accounts_closed: EventNumber;
+  root_closed: boolean;
+}
+
+export interface FinalSettledEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  arbitrator: EventPubkey;
+  winner: EventPubkey;
+  settled_at: EventNumber;
+}
+
 export type BracketChainEvent =
   | { name: 'TournamentCreated'; data: TournamentCreatedEvent }
   | { name: 'ParticipantRegistered'; data: ParticipantRegisteredEvent }
@@ -189,4 +211,7 @@ export type BracketChainEvent =
   | { name: 'ResultClaimed'; data: ResultClaimedEvent }
   | { name: 'DisputeResolved'; data: DisputeResolvedEvent }
   | { name: 'MatchLobbyCommitted'; data: MatchLobbyCommittedEvent }
-  | { name: 'MatchFeedBound'; data: MatchFeedBoundEvent };
+  | { name: 'MatchFeedBound'; data: MatchFeedBoundEvent }
+  | { name: 'TournamentPartiallyCancelled'; data: TournamentPartiallyCancelledEvent }
+  | { name: 'TournamentClosed'; data: TournamentClosedEvent }
+  | { name: 'FinalSettled'; data: FinalSettledEvent };
