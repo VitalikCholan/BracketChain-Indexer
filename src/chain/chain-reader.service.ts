@@ -269,10 +269,10 @@ export interface DecodedTournament {
   registrationDeadline: { toString(): string };
   createdAt: { toString(): string };
   startedAt: { toString(): string };
-  completedAt: { toString(): string };
+  completed_at: { toString(): string };
   status: { [variant: string]: object };
   payoutPreset: { [variant: string]: object };
-  settlementMode: { [variant: string]: object };
+  settlement_mode: { [variant: string]: object };
   game: { [variant: string]: object };
   champion: PublicKey;
   /// VRF (Stage B). `vrfRandomnessAccount` is `Pubkey::default()` (all-1s

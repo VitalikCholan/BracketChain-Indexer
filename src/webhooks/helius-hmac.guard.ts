@@ -5,7 +5,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
 
 type RawRequest = Request & { rawBody?: Buffer };
@@ -41,22 +41,15 @@ export class HeliusHmacGuard implements CanActivate {
     }
 
     const provided = header.replace(/^Bearer\s+/i, '').trim();
-    const expected = createHmac('sha256', secret)
-      .update(req.rawBody)
-      .digest('hex');
 
-    let providedBuf: Buffer;
-    let expectedBuf: Buffer;
-    try {
-      providedBuf = Buffer.from(provided, 'hex');
-      expectedBuf = Buffer.from(expected, 'hex');
-    } catch {
-      throw new UnauthorizedException('invalid signature encoding');
-    }
+    // Helius sends the raw Authentication Header value as a Bearer token.
+    // Compare with timing-safe equality to prevent timing attacks.
+    const providedBuf = Buffer.from(provided);
+    const secretBuf = Buffer.from(secret);
 
     if (
-      providedBuf.length !== expectedBuf.length ||
-      !timingSafeEqual(providedBuf, expectedBuf)
+      providedBuf.length !== secretBuf.length ||
+      !timingSafeEqual(providedBuf, secretBuf)
     ) {
       throw new UnauthorizedException('invalid signature');
     }

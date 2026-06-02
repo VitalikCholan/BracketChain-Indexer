@@ -177,7 +177,7 @@ export class ReconciliationService {
       const slotDrift = dbRow.chainSlotAtWrite < slot - BigInt(150);
       // settlement_mode is immutable on-chain and carried by no event, so we
       // backfill it set-once: populate the cache the first time we see the row.
-      const chainSettlement = anchorEnumToSettlementMode(chain.settlementMode);
+      const chainSettlement = anchorEnumToSettlementMode(chain.settlement_mode);
       const needsSettlement =
         dbRow.settlementMode === null && chainSettlement !== null;
       // game is immutable on-chain and carried by no event — backfill set-once,
@@ -227,7 +227,7 @@ export class ReconciliationService {
         (chainStatus === TournamentStatus.Completed ||
           chainStatus === TournamentStatus.Cancelled);
       if (becomesTerminal && dbRow.completedAt == null) {
-        const chainCompletedSec = Number(chain.completedAt.toString());
+        const chainCompletedSec = Number(chain.completed_at.toString());
         data.completedAt =
           chainCompletedSec > 0
             ? new Date(chainCompletedSec * 1000)
@@ -365,13 +365,14 @@ export class ReconciliationService {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+// Anchor 0.32+ with new IDL format decodes enum variants as PascalCase.
 const ENUM_TO_STATUS: Record<string, TournamentStatus> = {
-  registration: TournamentStatus.Registration,
-  pendingBracketInit: TournamentStatus.PendingBracketInit,
-  active: TournamentStatus.Active,
-  completed: TournamentStatus.Completed,
-  cancelled: TournamentStatus.Cancelled,
-  partialCancelled: TournamentStatus.PartialCancelled,
+  Registration: TournamentStatus.Registration,
+  PendingBracketInit: TournamentStatus.PendingBracketInit,
+  Active: TournamentStatus.Active,
+  Completed: TournamentStatus.Completed,
+  Cancelled: TournamentStatus.Cancelled,
+  PartialCancelled: TournamentStatus.PartialCancelled,
 };
 
 function anchorEnumToDbStatus(variant: {
@@ -383,9 +384,9 @@ function anchorEnumToDbStatus(variant: {
 }
 
 const ENUM_TO_SETTLEMENT: Record<string, SettlementMode> = {
-  organizerOnly: SettlementMode.OrganizerOnly,
-  playerReported: SettlementMode.PlayerReported,
-  oracle: SettlementMode.Oracle,
+  OrganizerOnly: SettlementMode.OrganizerOnly,
+  PlayerReported: SettlementMode.PlayerReported,
+  Oracle: SettlementMode.Oracle,
 };
 
 function anchorEnumToSettlementMode(variant: {
@@ -396,13 +397,12 @@ function anchorEnumToSettlementMode(variant: {
   return ENUM_TO_SETTLEMENT[keys[0]] ?? null;
 }
 
-// Anchor lowercases the first letter of each variant when decoding.
 const ENUM_TO_GAME: Record<string, Game> = {
-  manual: Game.Manual,
-  dota2: Game.Dota2,
-  cs2Faceit: Game.Cs2Faceit,
-  valorant: Game.Valorant,
-  loL: Game.LoL,
+  Manual: Game.Manual,
+  Dota2: Game.Dota2,
+  Cs2Faceit: Game.Cs2Faceit,
+  Valorant: Game.Valorant,
+  LoL: Game.LoL,
 };
 
 function anchorEnumToGame(variant: { [k: string]: object }): Game | null {
