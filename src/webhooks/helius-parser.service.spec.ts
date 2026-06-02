@@ -1145,5 +1145,56 @@ describe('HeliusParserService', () => {
       ]);
       expect(result).toEqual({ processed: 1, events: 0 });
     });
+
+    // ── L-3: per-event isolation ────────────────────────────────────────────
+    // A handler that throws must not drop the sibling events decoded from the
+    // same tx. We stub the EventParser to emit one event that throws (unknown
+    // payout_preset index → handleTournamentCreated throws before any write)
+    // followed by a well-formed one that must still persist.
+    it('a throwing event does not abort its siblings in the same tx', async () => {
+      const GOOD_PDA = 'Good1111111111111111111111111111111111111111';
+      const badEvent = {
+        name: 'TournamentCreated',
+        data: {
+          event_version: 1,
+          tournament: TOURNAMENT_PDA,
+          organizer: ORGANIZER,
+          token_mint: TOKEN_MINT,
+          entry_fee: 1000,
+          max_participants: 4,
+          payout_preset: 99, // invalid index → throws
+          registration_deadline: TX_TIMESTAMP_SEC,
+          name: 'bad',
+        },
+      };
+      const goodEvent = {
+        name: 'TournamentCreated',
+        data: {
+          event_version: 1,
+          tournament: GOOD_PDA,
+          organizer: ORGANIZER,
+          token_mint: TOKEN_MINT,
+          entry_fee: 1000,
+          max_participants: 4,
+          payout_preset: 0, // valid
+          registration_deadline: TX_TIMESTAMP_SEC,
+          name: 'good',
+        },
+      };
+      // Replace the real Anchor EventParser with a stub emitting both events.
+      const parserStub = { parseLogs: () => [badEvent, goodEvent] };
+      (service as unknown as { parser: typeof parserStub }).parser = parserStub;
+
+      const result = await service.processBatch([
+        makeTx({ meta: { logMessages: ['program log: x'] } }),
+      ]);
+
+      // Bad event threw (counted out), good event still handled.
+      expect(result).toEqual({ processed: 1, events: 1 });
+      expect(prisma.tournament.upsert).toHaveBeenCalledTimes(1);
+      expect(prisma.tournament.upsert.mock.calls[0][0].where).toEqual({
+        address: GOOD_PDA,
+      });
+    });
   });
 });

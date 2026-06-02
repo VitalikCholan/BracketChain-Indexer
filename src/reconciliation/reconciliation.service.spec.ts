@@ -75,6 +75,9 @@ function makePrismaMock(
     tournament: {
       findMany: jest.fn().mockResolvedValue(candidates),
       update: jest.fn().mockResolvedValue(undefined),
+      // M-4: freshness-only watermark bumps are flushed in one batched
+      // updateMany. Default count mirrors the candidate set size.
+      updateMany: jest.fn().mockResolvedValue({ count: candidates.length }),
     },
     payout: {
       findMany: jest.fn().mockResolvedValue(payoutOpts.existing ?? []),
@@ -233,7 +236,7 @@ describe('ReconciliationService', () => {
       expect(call.data.status).toBeUndefined(); // status didn't drift
     });
 
-    it('slot drift only: bumps chainSlotAtWrite without changing status/champion', async () => {
+    it('slot drift only (M-4): batched freshness bump, no per-row update', async () => {
       const prisma = makePrismaMock([
         {
           address: PDA_A,
@@ -247,17 +250,19 @@ describe('ReconciliationService', () => {
 
       await service.reconcile();
 
-      expect(prisma.tournament.update).toHaveBeenCalledTimes(1);
-      const call = prisma.tournament.update.mock.calls[0][0] as {
-        data: {
-          status?: TournamentStatus;
-          champion?: string | null;
-          chainSlotAtWrite: bigint;
-        };
+      // Freshness-only goes through the batched updateMany, not a per-row update.
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+      expect(prisma.tournament.updateMany).toHaveBeenCalledTimes(1);
+      const call = prisma.tournament.updateMany.mock.calls[0][0] as {
+        where: { address: { in: string[] } };
+        data: { chainSlotAtWrite: bigint };
       };
+      expect(call.where.address.in).toEqual([PDA_A]);
       expect(call.data.chainSlotAtWrite).toBe(BigInt(CURRENT_SLOT));
-      expect(call.data.status).toBeUndefined();
-      expect(call.data.champion).toBeUndefined();
+      // It is not drift — touched stays 0, freshnessBumped reflects the bump.
+      const status = service.getStatus();
+      expect(status.lastReconcileTouched).toBe(0);
+      expect(status.lastReconcileFreshnessBumped).toBe(1);
     });
 
     it('cancelled drift: chain=Cancelled, DB=Active', async () => {
@@ -296,12 +301,17 @@ describe('ReconciliationService', () => {
 
       await service.reconcile();
 
-      // slot drift still triggers update, but status field is omitted
-      expect(prisma.tournament.update).toHaveBeenCalledTimes(1);
-      const call = prisma.tournament.update.mock.calls[0][0] as {
-        data: { status?: TournamentStatus };
+      // Unknown variant → no content drift; the stale slot is handled by the
+      // batched freshness bump, never a per-row status patch.
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+      expect(prisma.tournament.updateMany).toHaveBeenCalledTimes(1);
+      const call = prisma.tournament.updateMany.mock.calls[0][0] as {
+        where: { address: { in: string[] } };
+        data: { status?: TournamentStatus; chainSlotAtWrite: bigint };
       };
+      expect(call.where.address.in).toEqual([PDA_A]);
       expect(call.data.status).toBeUndefined();
+      expect(call.data.chainSlotAtWrite).toBe(BigInt(CURRENT_SLOT));
     });
   });
 
@@ -344,8 +354,54 @@ describe('ReconciliationService', () => {
         where: { address: string };
       };
       expect(call.where.address).toBe(PDA_B);
+      // A is fresh (no drift, no stale slot) → no freshness bump either.
+      expect(prisma.tournament.updateMany).not.toHaveBeenCalled();
       expect(service.getStatus().lastReconcileScanned).toBe(3);
       expect(service.getStatus().lastReconcileTouched).toBe(1);
+      expect(service.getStatus().lastReconcileFreshnessBumped).toBe(0);
+    });
+
+    it('M-4: collapses many stale-slot rows into one batched updateMany', async () => {
+      const prisma = makePrismaMock([
+        {
+          address: PDA_A,
+          status: TournamentStatus.Active,
+          champion: null,
+          chainSlotAtWrite: STALE_SLOT,
+        },
+        {
+          address: PDA_B,
+          status: TournamentStatus.Active,
+          champion: null,
+          chainSlotAtWrite: STALE_SLOT,
+        },
+        {
+          address: PDA_C,
+          status: TournamentStatus.Active,
+          champion: null,
+          chainSlotAtWrite: STALE_SLOT,
+        },
+      ]);
+      const chain = makeChainReader([
+        chainAccount({ status: 'active' }),
+        chainAccount({ status: 'active' }),
+        chainAccount({ status: 'active' }),
+      ]);
+      const service = makeService(prisma, chain);
+
+      await service.reconcile();
+
+      // Three stale-but-clean rows → zero per-row updates, one bulk bump.
+      expect(prisma.tournament.update).not.toHaveBeenCalled();
+      expect(prisma.tournament.updateMany).toHaveBeenCalledTimes(1);
+      const call = prisma.tournament.updateMany.mock.calls[0][0] as {
+        where: { address: { in: string[] } };
+        data: { chainSlotAtWrite: bigint };
+      };
+      expect(call.where.address.in).toEqual([PDA_A, PDA_B, PDA_C]);
+      expect(call.data.chainSlotAtWrite).toBe(BigInt(CURRENT_SLOT));
+      expect(service.getStatus().lastReconcileTouched).toBe(0);
+      expect(service.getStatus().lastReconcileFreshnessBumped).toBe(3);
     });
   });
 
@@ -478,6 +534,7 @@ describe('ReconciliationService', () => {
         lastReconcileScanned: 0,
         lastReconcileTouched: 0,
         lastReconcilePayoutsBackfilled: 0,
+        lastReconcileFreshnessBumped: 0,
         lastReconcileError: null,
       });
     });

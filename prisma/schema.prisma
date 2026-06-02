@@ -52,8 +52,14 @@ model Tournament {
   /// Stage C (V1.2 Oracle settlement): on-chain `tournament.arbitrator` —
   /// the wallet that may resolve Oracle-proposed disputes (in addition to
   /// the two players). Defaults to organizer at create-time on chain; until
-  /// V1.3 reassignment, it tracks the organizer. Nullable so pre-V1.2 rows
-  /// decode; populated by the reconciliation cron (no event carries it).
+  /// V1.3 reassignment it tracks the organizer.
+  ///
+  /// Reserved stub — always NULL in Phase 1. Nothing writes this column: no
+  /// event carries it and the reconciliation cron does not backfill it (the
+  /// decoded tournament account has no arbitrator field yet). The frontend
+  /// reads NULL as "arbitrator == organizer" and suppresses the arbitrator
+  /// panel accordingly. The column exists so V1.3 reassignment can populate
+  /// it without a migration.
   arbitrator           String?
   payouts              Payout[]
   participants         Participant[]

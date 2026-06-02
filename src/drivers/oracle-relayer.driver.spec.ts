@@ -117,6 +117,31 @@ describe('OracleRelayerDriver', () => {
     });
   });
 
+  describe('L-1: in-flight dedup', () => {
+    it('a match proposed last tick is skipped this tick until re-indexed', async () => {
+      const prisma = makePrismaMock([MATCH_A]); // findMany returns it every tick
+      const driver = makeDriver(prisma);
+
+      await asPrivate(driver).tick(); // proposes + marks in-flight
+      await asPrivate(driver).tick(); // same row still due → suppressed
+
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(1);
+    });
+
+    it('a match whose propose threw is NOT marked → retried next tick', async () => {
+      sdk.proposeResultOracle
+        .mockRejectedValueOnce(new Error('feed not fresh'))
+        .mockResolvedValueOnce({ txSignature: 'tx2' });
+      const prisma = makePrismaMock([MATCH_A]);
+      const driver = makeDriver(prisma);
+
+      await asPrivate(driver).tick(); // throws → not marked
+      await asPrivate(driver).tick(); // retried, succeeds
+
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('production guard (via drive)', () => {
     afterEach(() => {
       delete process.env.PERMISSIONLESS_DRIVERS_ENABLED;

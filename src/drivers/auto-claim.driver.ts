@@ -83,8 +83,16 @@ export class AutoClaimDriver extends PermissionlessDriver {
 
     let claimed = 0;
     for (const m of due) {
+      // L-1: skip a match we already fired claim_result for last tick if it's
+      // still showing PendingConfirmation in the cache (on-chain finalize not
+      // yet re-indexed) — avoids a second redundant tx into the same window.
+      const key = `${m.tournamentAddress}:${m.bracket}:${m.round}:${m.matchIndex}`;
+      if (this.recentlyActed(key)) continue;
       try {
-        if (await this.claimOne(client, m)) claimed++;
+        if (await this.claimOne(client, m)) {
+          this.markActed(key);
+          claimed++;
+        }
       } catch (err) {
         // Isolate per-match: a stale row (already claimed on-chain but not yet
         // re-indexed) or a transient RPC error must not abort the rest of the

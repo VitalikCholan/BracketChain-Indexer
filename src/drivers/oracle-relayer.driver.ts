@@ -65,8 +65,14 @@ export class OracleRelayerDriver extends PermissionlessDriver {
 
     let proposed = 0;
     for (const m of due) {
+      // L-1: skip a match we already pushed propose_result_oracle for last tick
+      // if it's still showing Active/None in the cache (the proposal hasn't
+      // re-indexed yet) — avoids a second redundant tx into the same window.
+      const key = `${m.tournamentAddress}:${m.bracket}:${m.round}:${m.matchIndex}`;
+      if (this.recentlyActed(key)) continue;
       try {
         await this.proposeOne(client, m);
+        this.markActed(key);
         proposed++;
       } catch (err) {
         // Per-match isolation: a stale row (already proposed but not re-indexed),

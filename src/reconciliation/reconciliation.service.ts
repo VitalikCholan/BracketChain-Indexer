@@ -38,6 +38,10 @@ export class ReconciliationService {
   private lastReconcileError: string | null = null;
   private lastReconcileScanned = 0;
   private lastReconcilePayoutsBackfilled = 0;
+  // M-4: rows whose only change was the freshness watermark bump (no content
+  // drift). Tracked separately from `touched` so the drift metric stays
+  // meaningful — a routine freshness tick is not "drift was found".
+  private lastReconcileFreshnessBumped = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -59,6 +63,7 @@ export class ReconciliationService {
       this.lastReconcileTouched = stats.touched;
       this.lastReconcileScanned = stats.scanned;
       this.lastReconcilePayoutsBackfilled = stats.payoutsBackfilled;
+      this.lastReconcileFreshnessBumped = stats.freshnessBumped;
       this.lastReconcileError = null;
       if (stats.touched > 0 || stats.payoutsBackfilled > 0) {
         this.logger.log(
@@ -82,6 +87,7 @@ export class ReconciliationService {
       lastReconcileScanned: this.lastReconcileScanned,
       lastReconcileTouched: this.lastReconcileTouched,
       lastReconcilePayoutsBackfilled: this.lastReconcilePayoutsBackfilled,
+      lastReconcileFreshnessBumped: this.lastReconcileFreshnessBumped,
       lastReconcileError: this.lastReconcileError,
     };
   }
@@ -92,6 +98,7 @@ export class ReconciliationService {
     scanned: number;
     touched: number;
     payoutsBackfilled: number;
+    freshnessBumped: number;
   }> {
     // Scope: every non-terminal tournament + completed/cancelled within the
     // last hour (catches late-arriving Cancelled webhook). We bound at 50
@@ -132,7 +139,12 @@ export class ReconciliationService {
     });
 
     if (candidates.length === 0) {
-      return { scanned: 0, touched: 0, payoutsBackfilled: 0 };
+      return {
+        scanned: 0,
+        touched: 0,
+        payoutsBackfilled: 0,
+        freshnessBumped: 0,
+      };
     }
 
     // Batch fetch — one getMultipleAccountsInfo for up to 50 PDAs.
@@ -144,6 +156,11 @@ export class ReconciliationService {
 
     const slot = BigInt(currentSlot);
     let touched = 0;
+    // M-4: addresses whose only change is the freshness watermark. Collected
+    // and flushed in ONE batched updateMany after the loop, instead of up to 50
+    // individual per-row UPDATEs (write-amplification). The watermark value is
+    // identical for all of them (the current slot), so a bulk set is exact.
+    const freshIds: string[] = [];
 
     for (let i = 0; i < candidates.length; i++) {
       const dbRow = candidates[i];
@@ -168,18 +185,23 @@ export class ReconciliationService {
       const chainGame = anchorEnumToGame(chain.game);
       const needsGame = dbRow.game === null && chainGame !== null;
 
-      if (
-        !statusDrift &&
-        !championDrift &&
-        !slotDrift &&
-        !needsSettlement &&
-        !needsGame
-      ) {
+      // M-4: split content-drift from a freshness-only watermark touch. A row
+      // with no real drift but a stale watermark does NOT need a full-row
+      // update — it is batched into a single updateMany after the loop. Only
+      // genuine drift (status/champion/settlement/game) takes the per-row write
+      // and counts toward `touched`.
+      const contentDrift =
+        statusDrift || championDrift || needsSettlement || needsGame;
+      if (!contentDrift && !slotDrift) {
+        continue; // fully verified, nothing to write
+      }
+      if (!contentDrift) {
+        freshIds.push(dbRow.address); // freshness-only → batched bump below
         continue;
       }
 
-      // Only mutate fields that drifted. Bump chainSlotAtWrite regardless to
-      // mark the row as freshly verified.
+      // Content drift: mutate only the fields that drifted. Bump
+      // chainSlotAtWrite too — this row is freshly verified as of `slot`.
       const data: {
         status?: TournamentStatus;
         champion?: string | null;
@@ -228,12 +250,30 @@ export class ReconciliationService {
       touched++;
     }
 
+    // M-4: flush all freshness-only watermark bumps in one statement. Preserves
+    // the SWR freshness contract (frontend `useTournamentView` gates on
+    // `currentSlot - chainSlotAtWrite` vs STALE_SLOT_THRESHOLD) without N
+    // per-row UPDATEs. Kept out of `touched` (it is not drift).
+    let freshnessBumped = 0;
+    if (freshIds.length > 0) {
+      const bumped = await this.prisma.tournament.updateMany({
+        where: { address: { in: freshIds } },
+        data: { chainSlotAtWrite: slot },
+      });
+      freshnessBumped = bumped.count;
+    }
+
     const payoutsBackfilled = await this.backfillMissingPayouts(
       candidates,
       chainAccounts,
     );
 
-    return { scanned: candidates.length, touched, payoutsBackfilled };
+    return {
+      scanned: candidates.length,
+      touched,
+      payoutsBackfilled,
+      freshnessBumped,
+    };
   }
 
   /**

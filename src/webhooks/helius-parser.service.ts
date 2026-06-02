@@ -175,65 +175,78 @@ export class HeliusParserService implements OnModuleInit {
         );
         continue;
       }
-      switch (evt.name) {
-        case 'TournamentCreated':
-          await this.handleTournamentCreated(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'ParticipantRegistered':
-          await this.handleParticipantRegistered(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'TournamentStarted':
-          await this.handleTournamentStarted(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'MatchReported':
-          await this.handleMatchReported(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'TournamentCompleted':
-          await this.handleTournamentCompleted(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'TournamentCancelled':
-          await this.handleTournamentCancelled(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'RefundIssued':
-          await this.handleRefundIssued(evt.data, signature);
-          handled++;
-          break;
-        case 'ResultProposed':
-          await this.handleResultProposed(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'ResultDisputed':
-          await this.handleResultDisputed(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'ResultClaimed':
-          await this.handleResultClaimed(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'DisputeResolved':
-          await this.handleDisputeResolved(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'MatchLobbyCommitted':
-          await this.handleMatchLobbyCommitted(evt.data, tx, signature);
-          handled++;
-          break;
-        case 'MatchFeedBound':
-          await this.handleMatchFeedBound(evt.data, tx, signature);
-          handled++;
-          break;
-        default:
-          // Unknown event — ignore. Future events should be added explicitly.
-          break;
+      // L-3: isolate each event. A handler that throws (e.g. an unknown enum
+      // index from a future program build, or a transient DB error) must NOT
+      // abort the sibling events decoded from the SAME tx — those would
+      // otherwise bubble to processBatch and be dropped wholesale, with
+      // reconciliation as the only (slow) backstop. Per-event catch lets the
+      // good siblings persist now; the failed one is logged for reconcile.
+      try {
+        if (await this.dispatchEvent(evt, tx, signature)) handled++;
+      } catch (err) {
+        this.logger.error(
+          `Failed to handle ${evt.name} in tx ${signature}: ` +
+            `${err instanceof Error ? err.message : String(err)} — siblings continue`,
+        );
       }
     }
     return handled;
+  }
+
+  /**
+   * Dispatch one decoded event to its handler. Returns true when the event
+   * matched a known case (so the caller can count it). Throws are surfaced to
+   * the per-event guard in {@link processTransaction}.
+   */
+  private async dispatchEvent(
+    evt: BracketChainEvent,
+    tx: HeliusTransaction,
+    signature: string,
+  ): Promise<boolean> {
+    switch (evt.name) {
+      case 'TournamentCreated':
+        await this.handleTournamentCreated(evt.data, tx, signature);
+        return true;
+      case 'ParticipantRegistered':
+        await this.handleParticipantRegistered(evt.data, tx, signature);
+        return true;
+      case 'TournamentStarted':
+        await this.handleTournamentStarted(evt.data, tx, signature);
+        return true;
+      case 'MatchReported':
+        await this.handleMatchReported(evt.data, tx, signature);
+        return true;
+      case 'TournamentCompleted':
+        await this.handleTournamentCompleted(evt.data, tx, signature);
+        return true;
+      case 'TournamentCancelled':
+        await this.handleTournamentCancelled(evt.data, tx, signature);
+        return true;
+      case 'RefundIssued':
+        await this.handleRefundIssued(evt.data, signature);
+        return true;
+      case 'ResultProposed':
+        await this.handleResultProposed(evt.data, tx, signature);
+        return true;
+      case 'ResultDisputed':
+        await this.handleResultDisputed(evt.data, tx, signature);
+        return true;
+      case 'ResultClaimed':
+        await this.handleResultClaimed(evt.data, tx, signature);
+        return true;
+      case 'DisputeResolved':
+        await this.handleDisputeResolved(evt.data, tx, signature);
+        return true;
+      case 'MatchLobbyCommitted':
+        await this.handleMatchLobbyCommitted(evt.data, tx, signature);
+        return true;
+      case 'MatchFeedBound':
+        await this.handleMatchFeedBound(evt.data, tx, signature);
+        return true;
+      default:
+        // Unknown event — ignore. Future events should be added explicitly.
+        return false;
+    }
   }
 
   // ── handlers ──────────────────────────────────────────────────────────────

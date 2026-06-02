@@ -41,8 +41,60 @@ export abstract class PermissionlessDriver {
 
   private running = false;
 
+  /**
+   * L-1: in-flight dedup. Maps an item key (e.g. a match coordinate) to the
+   * epoch-ms after which it may be acted on again. After a driver submits a tx
+   * for an item it calls {@link markActed}; the next tick (≈60s later) skips
+   * that item via {@link recentlyActed} until the on-chain effect has had time
+   * to re-index, so we don't fire a second redundant tx into the dispute/claim
+   * window. Pure optimization — the on-chain program already rejects a true
+   * duplicate; this just avoids the wasted tx + fee. Process-local (single
+   * instance, no replicas) and lost on restart, which is fine: a restart at
+   * worst re-sends one tx the chain rejects.
+   */
+  private readonly inFlight = new Map<string, number>();
+
+  /**
+   * Grace window for {@link inFlight}. Slightly longer than the 60s cron
+   * cadence so an item acted on in tick N is suppressed in tick N+1 but
+   * eligible again by tick N+2 if still genuinely due (re-index never landed).
+   */
+  protected static readonly IN_FLIGHT_GRACE_MS = 90_000;
+
   constructor(protected readonly keychain: KeychainService) {
     this.logger = new Logger(this.constructor.name);
+  }
+
+  /**
+   * True if `key` was acted on within the grace window — the caller should skip
+   * it this tick. Expired entries are pruned lazily on read.
+   */
+  protected recentlyActed(key: string): boolean {
+    const until = this.inFlight.get(key);
+    if (until === undefined) return false;
+    if (Date.now() > until) {
+      this.inFlight.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Record that a tx was submitted for `key`, suppressing re-selection for
+   * {@link IN_FLIGHT_GRACE_MS}. Opportunistically GCs expired entries so the
+   * map can't grow unbounded across long uptimes.
+   */
+  protected markActed(key: string): void {
+    this.inFlight.set(
+      key,
+      Date.now() + PermissionlessDriver.IN_FLIGHT_GRACE_MS,
+    );
+    if (this.inFlight.size > 1000) {
+      const now = Date.now();
+      for (const [k, until] of this.inFlight) {
+        if (now > until) this.inFlight.delete(k);
+      }
+    }
   }
 
   /**

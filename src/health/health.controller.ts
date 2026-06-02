@@ -17,7 +17,10 @@ export class HealthController {
    *
    * Phase 5.4 enriched output for ops monitoring:
    *  - lastReconcileAt — null on cold start, ISO timestamp once cron has run
-   *  - lastReconcileScanned / Touched — last pass's tournament scope + diff count
+   *  - lastReconcileScanned / Touched — last pass's tournament scope + drift count
+   *  - lastReconcileFreshnessBumped — rows whose only change was the freshness
+   *    watermark (M-4: batched, not counted as drift)
+   *  - lastReconcilePayoutsBackfilled — Completed rows whose payouts were rebuilt
    *  - lastReconcileError — last error message (cleared on success)
    *
    * Railway / uptime monitors only need to check `ok: true`. Detailed fields

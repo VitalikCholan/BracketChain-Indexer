@@ -150,6 +150,33 @@ describe('AutoClaimDriver', () => {
     });
   });
 
+  describe('L-1: in-flight dedup', () => {
+    it('a match claimed last tick is skipped this tick until re-indexed', async () => {
+      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      const prisma = makePrismaMock([NON_FINAL]); // findMany returns it every tick
+      const driver = makeDriver(prisma);
+
+      await asPrivate(driver).tick(); // claims + marks in-flight
+      await asPrivate(driver).tick(); // same row still due → suppressed
+
+      expect(sdk.claimResult).toHaveBeenCalledTimes(1);
+    });
+
+    it('an intentionally-skipped final is NOT marked → stays eligible next tick', async () => {
+      // non-WTA final → claimOne returns false (organizer-adjudicated): we must
+      // not suppress it, since no tx was submitted.
+      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      const prisma = makePrismaMock([FINAL]);
+      const driver = makeDriver(prisma);
+
+      await asPrivate(driver).tick();
+      await asPrivate(driver).tick();
+
+      expect(sdk.getTournament).toHaveBeenCalledTimes(2); // re-evaluated both ticks
+      expect(sdk.claimResult).not.toHaveBeenCalled();
+    });
+  });
+
   describe('production guard (via drive)', () => {
     afterEach(() => {
       delete process.env.PERMISSIONLESS_DRIVERS_ENABLED;
