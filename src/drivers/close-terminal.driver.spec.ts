@@ -13,7 +13,6 @@ jest.mock('@bracketchain/sdk', () => ({
   closeTournament: jest.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const sdk = require('@bracketchain/sdk') as {
   BracketChainClient: jest.Mock;
   getTournament: jest.Mock;
@@ -32,9 +31,13 @@ function makePrismaMock(due: Array<{ address: string }>) {
   };
 }
 
-function makeDriver(prisma: ReturnType<typeof makePrismaMock>): CloseTerminalDriver {
+function makeDriver(
+  prisma: ReturnType<typeof makePrismaMock>,
+): CloseTerminalDriver {
   process.env.PROGRAM_ID = 'Prog1111111111111111111111111111111111111111';
-  const keychain = { getSigner: jest.fn().mockResolvedValue({ address: 'signer' }) };
+  const keychain = {
+    getSigner: jest.fn().mockResolvedValue({ address: 'signer' }),
+  };
   return new CloseTerminalDriver(keychain as never, prisma as never);
 }
 

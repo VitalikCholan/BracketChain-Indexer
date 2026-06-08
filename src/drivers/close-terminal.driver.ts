@@ -56,7 +56,9 @@ export class CloseTerminalDriver extends PermissionlessDriver {
     const cutoff = new Date(Date.now() - CLOSE_AFTER_MS);
     const due = await this.prisma.tournament.findMany({
       where: {
-        status: { in: [TournamentStatus.Completed, TournamentStatus.Cancelled] },
+        status: {
+          in: [TournamentStatus.Completed, TournamentStatus.Cancelled],
+        },
         completedAt: { lte: cutoff },
       },
       select: { address: true },
@@ -66,7 +68,9 @@ export class CloseTerminalDriver extends PermissionlessDriver {
     if (due.length === 0) return;
 
     const client = await this.getClient();
-    this.logger.log(`close-terminal: ${due.length} terminal tournament(s) past the 7-day cutoff`);
+    this.logger.log(
+      `close-terminal: ${due.length} terminal tournament(s) past the 7-day cutoff`,
+    );
 
     let closed = 0;
     for (const t of due) {
@@ -105,10 +109,12 @@ export class CloseTerminalDriver extends PermissionlessDriver {
       ...matches.map((m) => m.address),
     ];
 
-    const { childrenSubmitted, rootClosed, txSignatures } = await closeTournament(
-      client,
-      { tournamentPda, childPdas, closeRoot: true },
-    );
+    const { childrenSubmitted, rootClosed, txSignatures } =
+      await closeTournament(client, {
+        tournamentPda,
+        childPdas,
+        closeRoot: true,
+      });
     this.logger.log(
       `close-terminal: closed ${address} children=${childrenSubmitted} ` +
         `root=${rootClosed} txs=${txSignatures.length}`,
@@ -127,7 +133,7 @@ export class CloseTerminalDriver extends PermissionlessDriver {
     this.client = new BracketChainClient({
       rpc: rpcUrl,
       rpcSubscriptions: wsUrl,
-      signer: signer as never,
+      signer: signer,
       programAddress: programId as never,
       commitment: 'confirmed',
     });

@@ -80,7 +80,9 @@ export class SteamOpenIdService {
       });
       verifyText = await res.text();
     } catch (err) {
-      this.logger.warn(`Steam check_authentication request failed: ${String(err)}`);
+      this.logger.warn(
+        `Steam check_authentication request failed: ${String(err)}`,
+      );
       return null;
     }
 
@@ -92,7 +94,9 @@ export class SteamOpenIdService {
     const claimedId = params['openid.claimed_id'] ?? '';
     const match = CLAIMED_ID_RE.exec(claimedId);
     if (!match) {
-      this.logger.warn(`verified assertion but malformed claimed_id: ${claimedId}`);
+      this.logger.warn(
+        `verified assertion but malformed claimed_id: ${claimedId}`,
+      );
       return null;
     }
     return match[1];

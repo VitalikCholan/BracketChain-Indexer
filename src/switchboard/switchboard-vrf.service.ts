@@ -1,15 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  AccountRole,
-  address,
-  type Instruction,
-} from '@solana/kit';
-import {
-  Connection,
-  PublicKey,
-  type TransactionInstruction,
-} from '@solana/web3.js';
+import { type Instruction } from '@solana/kit';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { AnchorUtils, Randomness } from '@switchboard-xyz/on-demand';
+
+import { toKitInstruction } from './web3-kit';
 
 /**
  * Builds the Switchboard On-Demand `reveal` instruction for a bound randomness
@@ -60,28 +54,11 @@ export class SwitchboardVrfService {
     payer: string,
   ): Promise<Instruction> {
     const program = await this.getProgram();
-    const randomness = new Randomness(program, new PublicKey(randomnessAccount));
+    const randomness = new Randomness(
+      program,
+      new PublicKey(randomnessAccount),
+    );
     const web3Ix = await randomness.revealIx(new PublicKey(payer));
     return toKitInstruction(web3Ix);
   }
-}
-
-/** Map a web3.js account flag pair to the kit `AccountRole` enum. */
-function web3RoleToKit(isSigner: boolean, isWritable: boolean): AccountRole {
-  if (isSigner && isWritable) return AccountRole.WRITABLE_SIGNER;
-  if (isSigner) return AccountRole.READONLY_SIGNER;
-  if (isWritable) return AccountRole.WRITABLE;
-  return AccountRole.READONLY;
-}
-
-/** Convert a web3.js `TransactionInstruction` to a `@solana/kit` `Instruction`. */
-function toKitInstruction(ix: TransactionInstruction): Instruction {
-  return {
-    programAddress: address(ix.programId.toBase58()),
-    accounts: ix.keys.map((k) => ({
-      address: address(k.pubkey.toBase58()),
-      role: web3RoleToKit(k.isSigner, k.isWritable),
-    })),
-    data: new Uint8Array(ix.data),
-  };
 }

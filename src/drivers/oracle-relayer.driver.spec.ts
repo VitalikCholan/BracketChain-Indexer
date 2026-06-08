@@ -10,7 +10,6 @@ jest.mock('@bracketchain/sdk', () => ({
   proposeResultOracle: jest.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const sdk = require('@bracketchain/sdk') as {
   BracketChainClient: jest.Mock;
   proposeResultOracle: jest.Mock;
@@ -49,10 +48,25 @@ const MATCH_B: MatchRow = {
   switchboardFeed: FEED_B,
 };
 
-function makeDriver(prisma: ReturnType<typeof makePrismaMock>): OracleRelayerDriver {
+function makeDriver(
+  prisma: ReturnType<typeof makePrismaMock>,
+): OracleRelayerDriver {
   process.env.PROGRAM_ID = 'Prog1111111111111111111111111111111111111111';
-  const keychain = { getSigner: jest.fn().mockResolvedValue({ address: 'signer' }) };
-  return new OracleRelayerDriver(keychain as never, prisma as never);
+  const keychain = {
+    getSigner: jest.fn().mockResolvedValue({ address: 'signer' }),
+  };
+  // Phase 1.5: the driver cranks the feed before proposing — stub the
+  // Switchboard feed service so ticks stay offline.
+  const feeds = {
+    buildFeedUpdateKitIxs: jest
+      .fn()
+      .mockResolvedValue({ ixs: [], lookupTables: {} }),
+  };
+  return new OracleRelayerDriver(
+    keychain as never,
+    prisma as never,
+    feeds as never,
+  );
 }
 
 type DriverPrivate = { tick: () => Promise<void>; drive: () => Promise<void> };
@@ -94,7 +108,9 @@ describe('OracleRelayerDriver', () => {
 
       expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(1);
       const arg = sdk.proposeResultOracle.mock.calls[0][1];
-      expect(arg).toEqual({
+      // Phase 1.5 adds preInstructions/lookupTables/computeUnits — assert the
+      // core coordinates pass through unchanged.
+      expect(arg).toMatchObject({
         tournamentPda: TOURNAMENT_PDA,
         bracket: 0,
         round: 0,

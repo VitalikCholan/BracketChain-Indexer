@@ -25,7 +25,9 @@ function bytesToHex(b: Uint8Array): string {
   return s;
 }
 
-function serializeRow<T extends Record<string, unknown>>(row: T): Serialized<T> {
+function serializeRow<T extends Record<string, unknown>>(
+  row: T,
+): Serialized<T> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
     if (typeof v === 'bigint') out[k] = v.toString();

@@ -250,7 +250,7 @@ export class HeliusParserService implements OnModuleInit {
         await this.handleTournamentPartiallyCancelled(evt.data, tx, signature);
         return true;
       case 'TournamentClosed':
-        await this.handleTournamentClosed(evt.data, signature);
+        this.handleTournamentClosed(evt.data, signature);
         return true;
       case 'FinalSettled':
         await this.handleFinalSettled(evt.data, tx, signature);
@@ -1023,10 +1023,12 @@ export class HeliusParserService implements OnModuleInit {
     );
   }
 
-  private async handleTournamentClosed(
+  // Log-only handler (no DB write — the row is already terminal); kept sync
+  // so require-await stays meaningful for the handlers that DO write.
+  private handleTournamentClosed(
     data: TournamentClosedEvent,
     signature: string,
-  ): Promise<void> {
+  ): void {
     const address = pubkeyToString(data.tournament);
     this.logger.log(
       `tournamentClosed ${address} accountsClosed=${toNumber(data.accounts_closed)} ` +

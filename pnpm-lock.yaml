@@ -44,6 +44,15 @@ importers:
       '@solana/keychain':
         specifier: ^1.2.0
         version: 1.2.0(@solana/addresses@6.9.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3))(@solana/codecs-core@6.9.0(typescript@5.9.3))(@solana/codecs-strings@6.9.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3))(@solana/keys@6.9.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3))(@solana/signers@6.9.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3))(@solana/transactions@6.9.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3))
+      '@solana/kit':
+        specifier: ^6.9.0
+        version: 6.9.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      '@solana/web3.js':
+        specifier: ^1
+        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      '@switchboard-xyz/on-demand':
+        specifier: ^3.10.2
+        version: 3.10.2(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
       bn.js:
         specifier: ^5.2.3
         version: 5.2.3
@@ -62,6 +71,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      sas-lib:
+        specifier: ^1.0.10
+        version: 1.0.10(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.2.0
@@ -78,15 +90,6 @@ importers:
       '@nestjs/testing':
         specifier: ^11.0.1
         version: 11.1.19(@nestjs/common@11.1.19(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19)(@nestjs/platform-express@11.1.19)
-      '@solana/kit':
-        specifier: ^6.9.0
-        version: 6.9.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
-      '@solana/web3.js':
-        specifier: ^1
-        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
-      '@switchboard-xyz/on-demand':
-        specifier: ^3.10.2
-        version: 3.10.2(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@types/bn.js':
         specifier: ^5.2.0
         version: 5.2.0
@@ -129,9 +132,6 @@ importers:
       prisma:
         specifier: ^7.8.0
         version: 7.8.0(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@5.9.3)
-      sas-lib:
-        specifier: ^1.0.10
-        version: 1.0.10(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
       source-map-support:
         specifier: ^0.5.21
         version: 0.5.21
@@ -435,7 +435,7 @@ packages:
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
 
   '@bracketchain/sdk@file:vendor/bracketchain-sdk-0.6.0-dev.tgz':
-    resolution: {integrity: sha512-dtkvmMVbMXHzL/ozeEuWMnKoN1tQoB3ZyFIXYiHCuRnpSJbt1JwNZ9dsv/I+ZxYJ7aQcVbr2J2gX+uAxIzAZDg==, tarball: file:vendor/bracketchain-sdk-0.6.0-dev.tgz}
+    resolution: {integrity: sha512-FylhIkFCrRakOPvOrFNdqUaEBdaiNds/daP+i85WH4IkWROyLkUuogmJwfM3yQu7llk7+JYfEF5hPP0idL4BfQ==, tarball: file:vendor/bracketchain-sdk-0.6.0-dev.tgz}
     version: 0.6.0-dev
 
   '@colors/colors@1.5.0':
@@ -5445,9 +5445,13 @@ snapshots:
       '@solana-program/token': 0.13.0(@solana/kit@6.9.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6))
       '@solana/kit': 6.9.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@solana/program-client-core': 6.9.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)
+      '@switchboard-xyz/common': 5.8.2(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
     transitivePeerDependencies:
       - bufferutil
+      - debug
+      - encoding
       - fastestsmallesttextencoderdecoder
+      - supports-color
       - typescript
       - utf-8-validate
 

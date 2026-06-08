@@ -60,7 +60,10 @@ export class VrfRevealDriver extends PermissionlessDriver {
     const candidates = await this.prisma.tournament.findMany({
       where: {
         status: {
-          in: [TournamentStatus.Registration, TournamentStatus.PendingBracketInit],
+          in: [
+            TournamentStatus.Registration,
+            TournamentStatus.PendingBracketInit,
+          ],
         },
       },
       select: { address: true },
@@ -91,7 +94,9 @@ export class VrfRevealDriver extends PermissionlessDriver {
 
     const client = await this.getClient();
     const payer = String(client.signer!.address);
-    this.logger.log(`vrf-reveal: ${pending.length} tournament(s) awaiting reveal`);
+    this.logger.log(
+      `vrf-reveal: ${pending.length} tournament(s) awaiting reveal`,
+    );
 
     let revealed = 0;
     for (const p of pending) {
@@ -141,7 +146,7 @@ export class VrfRevealDriver extends PermissionlessDriver {
     this.client = new BracketChainClient({
       rpc: rpcUrl,
       rpcSubscriptions: wsUrl,
-      signer: signer as never,
+      signer: signer,
       programAddress: programId as never,
       commitment: 'confirmed',
     });

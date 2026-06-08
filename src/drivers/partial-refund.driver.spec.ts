@@ -9,7 +9,6 @@ jest.mock('@bracketchain/sdk', () => ({
   partialRefundChunk: jest.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const sdk = require('@bracketchain/sdk') as {
   BracketChainClient: jest.Mock;
   getTournament: jest.Mock;
@@ -21,9 +20,13 @@ const TOURNAMENT_PDA = 'Tour1111111111111111111111111111111111111111';
 function makePrismaMock(due: Array<{ address: string }>) {
   return { tournament: { findMany: jest.fn().mockResolvedValue(due) } };
 }
-function makeDriver(prisma: ReturnType<typeof makePrismaMock>): PartialRefundDriver {
+function makeDriver(
+  prisma: ReturnType<typeof makePrismaMock>,
+): PartialRefundDriver {
   process.env.PROGRAM_ID = 'Prog1111111111111111111111111111111111111111';
-  const keychain = { getSigner: jest.fn().mockResolvedValue({ address: 'signer' }) };
+  const keychain = {
+    getSigner: jest.fn().mockResolvedValue({ address: 'signer' }),
+  };
   return new PartialRefundDriver(keychain as never, prisma as never);
 }
 type DriverPrivate = { tick: () => Promise<void> };

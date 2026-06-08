@@ -6,7 +6,11 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs'],
+    ignores: [
+      'eslint.config.mjs',
+      'src/generated/**',
+      'test/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -32,10 +36,6 @@ export default tseslint.config(
     },
   },
   {
-    // Jest specs use hand-rolled mocks where call args are typed as `any` at
-    // the boundary — narrowing every `mock.calls[i][j]` with explicit type
-    // assertions is ceremony without payoff. Same for `as unknown as T`
-    // casts that bridge the mock to the real class type.
     files: ['**/*.spec.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-member-access': 'off',
@@ -43,6 +43,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
 );

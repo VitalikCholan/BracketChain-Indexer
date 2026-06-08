@@ -115,7 +115,9 @@
         {
           "name": "caller",
           "docs": [
-            "Only required to be the organizer when flipping status to Cancelled.",
+            "Only required to be the organizer when flipping status to Cancelled",
+            "before `registration_deadline + ABANDONED_CANCEL_GRACE_SECS`; past that,",
+            "any signer may flip an abandoned pre-start tournament (H-2 backstop).",
             "Once status == Cancelled, any signer can call to process refund chunks."
           ],
           "writable": true,
@@ -1011,6 +1013,14 @@
         {
           "name": "dispute_window_secs",
           "type": "u32"
+        },
+        {
+          "name": "format",
+          "type": {
+            "defined": {
+              "name": "TournamentFormat"
+            }
+          }
         }
       ]
     },
@@ -3374,6 +3384,36 @@
       "code": 6059,
       "name": "InvalidOracleConfig",
       "msg": "Oracle config out of bounds (min_oracle_samples must be >= 1; max_stale_slots must not exceed the staleness ceiling)"
+    },
+    {
+      "code": 6060,
+      "name": "ParticipantRefundPending",
+      "msg": "Participant has an unpaid refund; drive the refund chunk before closing this account"
+    },
+    {
+      "code": 6061,
+      "name": "AbandonGraceNotElapsed",
+      "msg": "Abandoned-tournament grace period has not elapsed; only the organizer may cancel before registration_deadline + grace"
+    },
+    {
+      "code": 6062,
+      "name": "NonCanonicalBump",
+      "msg": "Match descriptor bump is not the canonical PDA bump"
+    },
+    {
+      "code": 6063,
+      "name": "PlacementNotParticipant",
+      "msg": "Placement wallet is not a registered Participant of this tournament"
+    },
+    {
+      "code": 6064,
+      "name": "DuplicatePlacement",
+      "msg": "Placements must be pairwise distinct"
+    },
+    {
+      "code": 6065,
+      "name": "FormatNotYetSupported",
+      "msg": "Tournament format is reserved but not yet supported (V1 is single-elimination only)"
     }
   ],
   "types": [
@@ -3809,6 +3849,20 @@
               "`Pubkey::default()` (zero) ⇒ no feed bound."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "score_a",
+            "docs": [
+              "Per-match score for `player_a` / `player_b`. Zero until a reporting path",
+              "populates them — formats Phase A (Round Robin) consumes these for its",
+              "point-differential tiebreaker; single-elim ignores them. Schema ships in",
+              "Phase 1 so Phase A needs no account-layout migration."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "score_b",
+            "type": "u16"
           }
         ]
       }
@@ -4532,6 +4586,20 @@
               "`organizer` at create-time (Squads multisig reassignment is V1.3)."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "format",
+            "docs": [
+              "Bracket topology. Locked at create-time; V1 only accepts `SingleElim`",
+              "(others rejected with `FormatNotYetSupported` until formats Phases A-C",
+              "lift their gates). Zero variant == `SingleElim`, so pre-R15 accounts",
+              "zero-fill correctly under `migrate_v1_tournament`-style reallocs."
+            ],
+            "type": {
+              "defined": {
+                "name": "TournamentFormat"
+              }
+            }
           }
         ]
       }
@@ -4709,6 +4777,38 @@
       }
     },
     {
+      "name": "TournamentFormat",
+      "docs": [
+        "Bracket topology a tournament runs. **Discriminants are a stable wire",
+        "contract** — never reorder or renumber. `SingleElim` (0) is deliberately the",
+        "zero variant: Borsh zero-fill on pre-R15 accounts (and `realloc(_, true)`",
+        "migrations) deserializes as `SingleElim`, which is what every existing",
+        "tournament actually is.",
+        "",
+        "R15 schema-prep: only the field + enum ship in Phase 1 so formats Phase A",
+        "(Round Robin) / B (Double Elim) / C (Swiss) never need a breaking redeploy.",
+        "`create_tournament` rejects everything but `SingleElim` with",
+        "`FormatNotYetSupported` until each phase lifts its gate."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "SingleElim"
+          },
+          {
+            "name": "DoubleElim"
+          },
+          {
+            "name": "Swiss"
+          },
+          {
+            "name": "RoundRobin"
+          }
+        ]
+      }
+    },
+    {
       "name": "TournamentPartiallyCancelled",
       "docs": [
         "Mid-tournament cancellation (Stage E, E-2). The bracket is frozen; refunds",
@@ -4801,6 +4901,19 @@
     }
   ],
   "constants": [
+    {
+      "name": "ABANDONED_CANCEL_GRACE_SECS",
+      "docs": [
+        "Grace period after `registration_deadline` before `cancel_tournament` lets",
+        "ANY signer flip an abandoned pre-start tournament (Registration /",
+        "PendingBracketInit) to Cancelled — the trustless backstop against an",
+        "organizer who never starts the bracket and never cancels, which would",
+        "otherwise lock every entry fee in the vault forever (H-2). 24 hours,",
+        "mirroring `FORCE_CLAIM_WINDOW_SECS`."
+      ],
+      "type": "i64",
+      "value": "86400"
+    },
     {
       "name": "BPS_DENOMINATOR",
       "type": "u16",

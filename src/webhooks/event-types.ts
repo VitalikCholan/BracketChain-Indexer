@@ -212,6 +212,9 @@ export type BracketChainEvent =
   | { name: 'DisputeResolved'; data: DisputeResolvedEvent }
   | { name: 'MatchLobbyCommitted'; data: MatchLobbyCommittedEvent }
   | { name: 'MatchFeedBound'; data: MatchFeedBoundEvent }
-  | { name: 'TournamentPartiallyCancelled'; data: TournamentPartiallyCancelledEvent }
+  | {
+      name: 'TournamentPartiallyCancelled';
+      data: TournamentPartiallyCancelledEvent;
+    }
   | { name: 'TournamentClosed'; data: TournamentClosedEvent }
   | { name: 'FinalSettled'; data: FinalSettledEvent };

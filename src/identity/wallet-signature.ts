@@ -72,7 +72,7 @@ export async function verifyWalletSignature(
       { name: 'Ed25519' },
       key,
       sig as unknown as BufferSource,
-      new TextEncoder().encode(message) as unknown as BufferSource,
+      new TextEncoder().encode(message),
     );
   } catch {
     return false;

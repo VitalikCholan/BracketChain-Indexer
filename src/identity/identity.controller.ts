@@ -10,7 +10,7 @@ function frontendFallback(): string {
   return (process.env.FRONTEND_ORIGIN ?? 'http://localhost:3001')
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean)[0]!;
+    .filter(Boolean)[0];
 }
 
 /**

@@ -169,7 +169,7 @@ export class AutoClaimDriver extends PermissionlessDriver {
     this.client = new BracketChainClient({
       rpc: rpcUrl,
       rpcSubscriptions: wsUrl,
-      signer: signer as never,
+      signer: signer,
       programAddress: programId as never,
       commitment: 'confirmed',
     });

@@ -11,28 +11,14 @@ model Tournament {
   address              String           @id
   organizer            String
   name                 String
-  /// SPL Token mint for the prize pool. Renamed from `usdcMint` 2026-05-03 —
-  /// the program is mint-agnostic; USDC is one of many possible mints.
   tokenMint            String
   entryFee             BigInt
-  /// Phase 2.5: optional organizer top-up to the prize pool. Zero when
-  /// not provided (Variant B optional).
   organizerDeposit     BigInt           @default(0)
   maxParticipants      Int
   payoutPreset         PayoutPreset
   registrationDeadline DateTime
   status               TournamentStatus
-  /// On-chain settlement mode. Not carried by any event, so it is backfilled
-  /// from the chain by the reconciliation cron (set-once — immutable on-chain).
-  /// Null until first reconciled; always populated well before a tournament is
-  /// Active (the only state the report/settle UI acts on). The frontend reads
-  /// this to pick the result flow (organizer-report vs player-reported).
   settlementMode       SettlementMode?
-  /// On-chain game (V1.1). Like `settlementMode`, carried by no event and
-  /// immutable on-chain, so the reconciliation cron backfills it set-once. Null
-  /// until first reconciled; the frontend treats null as `Manual` (the safe,
-  /// no-identity-gate default) until the cache populates. Drives the
-  /// "link Steam before join" gate for game-tagged tournaments (A-11).
   game                 Game?
   champion             String?
   grossPool            BigInt?
@@ -42,24 +28,7 @@ model Tournament {
   completedAt          DateTime?
   createdTxSig         String
   completedTxSig       String?
-  /// Phase 5.1: Solana slot of the most recent webhook tx that mutated this
-  /// row. Frontend uses this for stale-while-revalidate freshness gating —
-  /// if `currentSlot - chainSlotAtWrite > N` the row is treated as
-  /// potentially stale and a chain reconcile is enqueued. Zero on legacy
-  /// rows seeded before 5.1; webhook handler upgrades it on the next
-  /// state-changing event for that tournament.
   chainSlotAtWrite     BigInt           @default(0)
-  /// Stage C (V1.2 Oracle settlement): on-chain `tournament.arbitrator` —
-  /// the wallet that may resolve Oracle-proposed disputes (in addition to
-  /// the two players). Defaults to organizer at create-time on chain; until
-  /// V1.3 reassignment it tracks the organizer.
-  ///
-  /// Reserved stub — always NULL in Phase 1. Nothing writes this column: no
-  /// event carries it and the reconciliation cron does not backfill it (the
-  /// decoded tournament account has no arbitrator field yet). The frontend
-  /// reads NULL as "arbitrator == organizer" and suppresses the arbitrator
-  /// panel accordingly. The column exists so V1.3 reassignment can populate
-  /// it without a migration.
   arbitrator           String?
   payouts              Payout[]
   participants         Participant[]
@@ -69,11 +38,6 @@ model Tournament {
   @@index([organizer])
 }
 
-/// Phase 5.2: per-tournament participant cache.
-/// Source events: ParticipantRegistered (insert), RefundIssued (sets refundPaid).
-/// `seedIndex` is the program-assigned slot used when bracket initialization
-/// orders participants by seedHash + index. Composite unique on (tournament, wallet)
-/// matches the on-chain Participant PDA seeds [b"participant", tournament, wallet].
 model Participant {
   id                String     @id @default(uuid())
   tournamentAddress String
@@ -83,13 +47,7 @@ model Participant {
   refundPaid        Boolean    @default(false)
   registeredAt      DateTime   @default(now())
   registeredTxSig   String
-  /// Phase 5.1 freshness watermark — slot of the most recent webhook write.
   chainSlotAtWrite  BigInt     @default(0)
-  /// B-14 (Stage B): per-participant record + game identity. Columns are
-  /// additive now; no current event carries these values (MatchReported only
-  /// names the winner, ParticipantRegistered omits identity_hash), so they are
-  /// populated by the Phase 5.4 reconciliation cron reading MatchNode /
-  /// Participant accounts from chain. Default 0 / null until then.
   wins              Int        @default(0)
   losses            Int        @default(0)
   pointsFor         Int        @default(0)
@@ -101,21 +59,10 @@ model Participant {
   @@index([wallet])
 }
 
-/// Phase 5.2: per-tournament match cache.
-/// Source events: MatchReported (winner + completion). Pending matches are NOT
-/// seeded from TournamentStarted (lean-indexer philosophy — no RPC fan-out in
-/// webhook handler); frontend SWR layer falls back to chain reads for full
-/// bracket topology when needed.
-/// Bye matches (auto-completed by start_tournament for byes) WILL eventually be
-/// upserted by the reconciliation cron in Phase 5.4. Until then they live only
-/// on chain.
 model Match {
   id                String      @id @default(uuid())
   tournamentAddress String
   tournament        Tournament  @relation(fields: [tournamentAddress], references: [address], onDelete: Cascade)
-  /// B-14 (C9): bracket lane — 0 = single-elim (V1), 1/2 = winners/losers/grand
-  /// for future double-elim. Part of the on-chain MatchNode PDA seed, so it is
-  /// part of this row's natural key.
   bracket           Int         @default(0)
   round             Int
   matchIndex        Int
@@ -127,29 +74,13 @@ model Match {
   reportedAt        DateTime?
   reportedTxSig     String?
   chainSlotAtWrite  BigInt      @default(0)
-  /// B-14 (Stage B): player-reported / oracle settlement envelope, mirroring
-  /// the on-chain MatchNode fields. `status` carries the derived UI state
-  /// (PendingConfirmation / Disputed / Completed) per PRD §5.2; these columns
-  /// hold the underlying envelope the frontend reads to render confirm/dispute
-  /// panels (B-17) and the auto-claim/vrf crons scan (B-15/B-16).
   proposalSource    ProposalSource @default(None)
   proposer          String?
   proposedWinner    String?
   proposedAt        DateTime?
-  /// Deadline after which the result may be permissionlessly finalized. On
-  /// dispute it is re-armed to the +24h force-claim window.
   claimDeadline     DateTime?
   disputed          Boolean     @default(false)
-  /// Raw `dispute_reason` code (u8) from the ResultDisputed event.
   disputeReason     Int?
-  /// Stage C (V1.2 Oracle settlement) — `MatchCommitment` snapshot. All
-  /// nullable: OrganizerOnly/PlayerReported matches never get them; pre-V1.2
-  /// rows decode cleanly. `lobbyId` + `committedAt` come from the
-  /// `MatchLobbyCommitted` event; the game IDs + expected feed hash live
-  /// only on the on-chain `MatchCommitment` and are populated by the
-  /// reconciliation cron (audit + frontend OraclePendingPanel display).
-  /// `switchboardFeed` comes from the `MatchFeedBound` event and is the
-  /// scan-key for the oracle-relayer cron.
   lobbyId           Bytes?
   playerAGameId     Bytes?
   playerBGameId     Bytes?
@@ -161,11 +92,6 @@ model Match {
   @@index([tournamentAddress])
 }
 
-/// Match lifecycle. Pending/Active/Completed come straight from chain; the
-/// intermediate PendingConfirmation / Disputed states are derived by the
-/// parser from the settlement envelope (a proposal is live, or a dispute is
-/// open) — the on-chain program keeps status Active until finalize and tracks
-/// the rest via the envelope. PRD §5.2 names all five.
 enum MatchStatus {
   Pending
   Active
@@ -174,8 +100,6 @@ enum MatchStatus {
   Completed
 }
 
-/// Source of a match-result proposal. Mirrors the on-chain `ProposalSource`
-/// enum (None=0, Player=1, Oracle=2, GameServer=3).
 enum ProposalSource {
   None
   Player
@@ -193,9 +117,7 @@ model Payout {
   placement         Int?
   txSignature       String
   createdAt         DateTime   @default(now())
-
-  // Idempotency: Helius may redeliver the same webhook event. Same (tx, recipient, kind)
-  // combination is impossible to legitimately produce twice within one tournament's CPI batch.
+.
   @@unique([txSignature, recipient, kind])
   @@index([tournamentAddress])
 }
@@ -215,17 +137,12 @@ enum TournamentStatus {
   PartialCancelled
 }
 
-/// On-chain `SettlementMode` — how match results are settled. Mirrors the
-/// program enum (OrganizerOnly=0, PlayerReported=1, Oracle=2).
 enum SettlementMode {
   OrganizerOnly
   PlayerReported
   Oracle
 }
 
-/// Mirrors the on-chain `SupportedGame` enum. **Order is a stable wire
-/// contract** (discriminants 0..4) — never reorder. Phase 1 only ever stores
-/// `Manual` or `Dota2`; the rest are reserved for forward compatibility.
 enum Game {
   Manual
   Dota2
@@ -234,11 +151,18 @@ enum Game {
   LoL
 }
 
+model SteamIdentity {
+  identityHash String   @id
+  steamId64    String
+  wallet       String
+  linkedAt     DateTime @default(now())
+
+  @@index([wallet])
+}
+
 enum PayoutKind {
   Prize
   Refund
   Fee
-  /// Phase 2.5: refund of organizer's deposit on cancel. Distinct from
-  /// `Refund` (per-participant entry-fee refund) for analytics + display.
   OrganizerRefund
 }

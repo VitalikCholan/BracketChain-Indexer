@@ -9,25 +9,12 @@ import {
 } from '../chain/chain-reader.service';
 import {
   Game,
+  MatchStatus,
   PayoutPreset,
   SettlementMode,
   TournamentStatus,
 } from '../generated/prisma';
 
-/**
- * Phase 5.4: reconciliation cron.
- *
- * Runs every minute, scans non-terminal tournaments + recently-completed ones,
- * batch-fetches their on-chain accounts, and patches the DB if any drift is
- * found. Catches missed webhook deliveries (TournamentStarted, TournamentCancelled,
- * TournamentCompleted, MatchReported) without requiring a separate replay path.
- *
- * Why this exists: the lean indexer (locked decision 2026-05-01) explicitly
- * cut the reconciliation cron, on the bet that Helius webhooks are reliable.
- * P6-4 surfaced webhook drops in production. Spec §6.3 promises "<5s sync
- * latency" — this cron is the retry mechanism that makes that claim survive
- * single-webhook drops without manual SQL surgery.
- */
 @Injectable()
 export class ReconciliationService {
   private readonly logger = new Logger(ReconciliationService.name);
@@ -38,10 +25,8 @@ export class ReconciliationService {
   private lastReconcileError: string | null = null;
   private lastReconcileScanned = 0;
   private lastReconcilePayoutsBackfilled = 0;
-  // M-4: rows whose only change was the freshness watermark bump (no content
-  // drift). Tracked separately from `touched` so the drift metric stays
-  // meaningful — a routine freshness tick is not "drift was found".
   private lastReconcileFreshnessBumped = 0;
+  private lastStuckFinals: string[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -89,6 +74,8 @@ export class ReconciliationService {
       lastReconcilePayoutsBackfilled: this.lastReconcilePayoutsBackfilled,
       lastReconcileFreshnessBumped: this.lastReconcileFreshnessBumped,
       lastReconcileError: this.lastReconcileError,
+      stuckFinalsCount: this.lastStuckFinals.length,
+      stuckFinals: this.lastStuckFinals,
     };
   }
 
@@ -268,12 +255,71 @@ export class ReconciliationService {
       chainAccounts,
     );
 
+
+    try {
+      this.lastStuckFinals = await this.detectStuckFinals();
+    } catch (err) {
+      this.logger.warn(
+        `Stuck-final sweep failed — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
     return {
       scanned: candidates.length,
       touched,
       payoutsBackfilled,
       freshnessBumped,
     };
+  }
+
+  private async detectStuckFinals(): Promise<string[]> {
+    const now = new Date();
+
+    const candidates = await this.prisma.match.findMany({
+      where: {
+        status: MatchStatus.PendingConfirmation,
+        disputed: false,
+        matchIndex: 0,
+        claimDeadline: { not: null, lte: now },
+        tournament: {
+          status: TournamentStatus.Active,
+          payoutPreset: { not: PayoutPreset.WinnerTakesAll },
+        },
+      },
+      select: {
+        tournamentAddress: true,
+        bracket: true,
+        round: true,
+        matchIndex: true,
+      },
+    });
+    if (candidates.length === 0) return [];
+
+    const maxRounds = await this.prisma.match.groupBy({
+      by: ['tournamentAddress'],
+      where: {
+        tournamentAddress: {
+          in: candidates.map((c) => c.tournamentAddress),
+        },
+      },
+      _max: { round: true },
+    });
+    const maxByTournament = new Map(
+      maxRounds.map((r) => [r.tournamentAddress, r._max.round]),
+    );
+
+    const stuck = candidates.filter(
+      (c) => c.round === maxByTournament.get(c.tournamentAddress),
+    );
+    for (const s of stuck) {
+      this.logger.warn(
+        `Stuck non-WTA final: ${s.tournamentAddress} b${s.bracket}r${s.round}m${s.matchIndex} ` +
+          `— undisputed past the claim deadline; awaiting arbitrator settle_final (finalize via the UI)`,
+      );
+    }
+    return stuck.map(
+      (s) => `${s.tournamentAddress}:${s.bracket}:${s.round}:${s.matchIndex}`,
+    );
   }
 
   /**

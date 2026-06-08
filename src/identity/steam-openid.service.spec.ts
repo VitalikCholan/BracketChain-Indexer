@@ -6,7 +6,8 @@ describe('SteamOpenIdService', () => {
   beforeEach(() => {
     svc = new SteamOpenIdService();
     process.env.STEAM_REALM = 'https://indexer.test';
-    process.env.STEAM_RETURN_URL = 'https://indexer.test/identity/steam/callback';
+    process.env.STEAM_RETURN_URL =
+      'https://indexer.test/identity/steam/callback';
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -34,9 +35,7 @@ describe('SteamOpenIdService', () => {
     };
 
     function mockSteam(body: string) {
-      jest
-        .spyOn(global, 'fetch')
-        .mockResolvedValue(new Response(body) as unknown as Response);
+      jest.spyOn(global, 'fetch').mockResolvedValue(new Response(body));
     }
 
     it('returns the steamId64 when Steam confirms is_valid:true', async () => {

@@ -11,10 +11,13 @@ jest.mock('@bracketchain/sdk', () => ({
     .mockImplementation(() => ({ signer: { address: 'ClaimPayer11111' } })),
   claimResult: jest.fn(),
   getTournament: jest.fn(),
-  PayoutPreset: { WinnerTakesAll: 'WinnerTakesAll', Standard: 'Standard', Deep: 'Deep' },
+  PayoutPreset: {
+    WinnerTakesAll: 'WinnerTakesAll',
+    Standard: 'Standard',
+    Deep: 'Deep',
+  },
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const sdk = require('@bracketchain/sdk') as {
   BracketChainClient: jest.Mock;
   claimResult: jest.Mock;
@@ -55,9 +58,13 @@ const FINAL: MatchRow = {
   proposedWinner: PLAYER_A,
 };
 
-function makeDriver(prisma: ReturnType<typeof makePrismaMock>): AutoClaimDriver {
+function makeDriver(
+  prisma: ReturnType<typeof makePrismaMock>,
+): AutoClaimDriver {
   process.env.PROGRAM_ID = 'Prog1111111111111111111111111111111111111111';
-  const keychain = { getSigner: jest.fn().mockResolvedValue({ address: 'signer' }) };
+  const keychain = {
+    getSigner: jest.fn().mockResolvedValue({ address: 'signer' }),
+  };
   return new AutoClaimDriver(keychain as never, prisma as never);
 }
 
@@ -96,7 +103,10 @@ describe('AutoClaimDriver', () => {
 
   describe('claimOne', () => {
     it('non-final → claims with no placements', async () => {
-      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      sdk.getTournament.mockResolvedValue({
+        bracketSize: 4,
+        payoutPreset: 'Standard',
+      });
       const prisma = makePrismaMock([NON_FINAL]);
       await asPrivate(makeDriver(prisma)).tick();
 
@@ -119,7 +129,10 @@ describe('AutoClaimDriver', () => {
     });
 
     it('non-WTA final → skipped (organizer-adjudicated 3rd place, by design)', async () => {
-      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      sdk.getTournament.mockResolvedValue({
+        bracketSize: 4,
+        payoutPreset: 'Standard',
+      });
       const prisma = makePrismaMock([FINAL]);
       await asPrivate(makeDriver(prisma)).tick();
       expect(sdk.claimResult).not.toHaveBeenCalled();
@@ -152,7 +165,10 @@ describe('AutoClaimDriver', () => {
 
   describe('L-1: in-flight dedup', () => {
     it('a match claimed last tick is skipped this tick until re-indexed', async () => {
-      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      sdk.getTournament.mockResolvedValue({
+        bracketSize: 4,
+        payoutPreset: 'Standard',
+      });
       const prisma = makePrismaMock([NON_FINAL]); // findMany returns it every tick
       const driver = makeDriver(prisma);
 
@@ -165,7 +181,10 @@ describe('AutoClaimDriver', () => {
     it('an intentionally-skipped final is NOT marked → stays eligible next tick', async () => {
       // non-WTA final → claimOne returns false (organizer-adjudicated): we must
       // not suppress it, since no tx was submitted.
-      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      sdk.getTournament.mockResolvedValue({
+        bracketSize: 4,
+        payoutPreset: 'Standard',
+      });
       const prisma = makePrismaMock([FINAL]);
       const driver = makeDriver(prisma);
 
@@ -199,7 +218,10 @@ describe('AutoClaimDriver', () => {
     it('both flags on → tick runs', async () => {
       process.env.PERMISSIONLESS_DRIVERS_ENABLED = 'true';
       process.env.PERMISSIONLESS_AUTO_CLAIM_ENABLED = 'true';
-      sdk.getTournament.mockResolvedValue({ bracketSize: 4, payoutPreset: 'Standard' });
+      sdk.getTournament.mockResolvedValue({
+        bracketSize: 4,
+        payoutPreset: 'Standard',
+      });
       const prisma = makePrismaMock([NON_FINAL]);
       await asPrivate(makeDriver(prisma)).drive();
       expect(prisma.match.findMany).toHaveBeenCalledTimes(1);

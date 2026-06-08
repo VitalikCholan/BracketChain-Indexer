@@ -20,7 +20,8 @@ function base58Encode(bytes: Uint8Array): string {
   }
   let str = '';
   for (let k = 0; k < bytes.length && bytes[k] === 0; k++) str += '1';
-  for (let q = digits.length - 1; q >= 0; q--) str += BASE58_ALPHABET[digits[q]];
+  for (let q = digits.length - 1; q >= 0; q--)
+    str += BASE58_ALPHABET[digits[q]];
   return str;
 }
 
@@ -28,11 +29,13 @@ function base58Encode(bytes: Uint8Array): string {
 async function signWith(
   message: string,
 ): Promise<{ wallet: string; signature: string }> {
-  const kp = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+  const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
     'sign',
     'verify',
-  ])) as CryptoKeyPair;
-  const pub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  ]);
+  const pub = new Uint8Array(
+    await crypto.subtle.exportKey('raw', kp.publicKey),
+  );
   const sig = new Uint8Array(
     await crypto.subtle.sign(
       { name: 'Ed25519' },
@@ -48,9 +51,9 @@ describe('verifyWalletSignature', () => {
 
   it('accepts a genuine signature over the message', async () => {
     const { wallet, signature } = await signWith(message);
-    await expect(verifyWalletSignature(wallet, message, signature)).resolves.toBe(
-      true,
-    );
+    await expect(
+      verifyWalletSignature(wallet, message, signature),
+    ).resolves.toBe(true);
   });
 
   it('rejects a signature from a different wallet', async () => {
@@ -64,7 +67,11 @@ describe('verifyWalletSignature', () => {
   it('rejects when the verified message differs from the signed one', async () => {
     const { wallet, signature } = await signWith(message);
     await expect(
-      verifyWalletSignature(wallet, 'bracketchain:bind-steam:tampered', signature),
+      verifyWalletSignature(
+        wallet,
+        'bracketchain:bind-steam:tampered',
+        signature,
+      ),
     ).resolves.toBe(false);
   });
 

@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { KeychainService } from '../keys/keychain.service';
+import { PrismaService } from '../prisma.service';
 
 // Devnet SAS artifacts from the §2 bootstrap (overridable via env).
 const SAS_CREDENTIAL =
   process.env.SAS_CREDENTIAL ?? 'A6aCesF4nLNRGBRfUS5dCw9e1f1peGmNhZU4t139Qwjc';
 const SAS_SCHEMA_DOTA2 =
-  process.env.SAS_SCHEMA_DOTA2 ?? '4TT2a5ycymMRwZJoGTPfaggb7CtGrDtCXKheF7zeV27m';
+  process.env.SAS_SCHEMA_DOTA2 ??
+  '4TT2a5ycymMRwZJoGTPfaggb7CtGrDtCXKheF7zeV27m';
 const RPC_HTTP = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
 
 /** `SupportedGame::Dota2` discriminant — must match the on-chain enum. */
@@ -47,7 +49,10 @@ export interface GameIdentity {
 export class IdentityService {
   private readonly logger = new Logger(IdentityService.name);
 
-  constructor(private readonly keychain: KeychainService) {}
+  constructor(
+    private readonly keychain: KeychainService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Issue (or return the existing) SAS attestation binding `wallet` ↔ Steam
@@ -76,16 +81,33 @@ export class IdentityService {
     const steamLe = Buffer.alloc(8);
     steamLe.writeBigUInt64LE(BigInt(steamId64));
     const identityBytes = createHash('sha256').update(steamLe).digest(); // 32 bytes
+
+    const identityHashHex = identityBytes.toString('hex');
+    await this.prisma.steamIdentity.upsert({
+      where: { identityHash: identityHashHex },
+      create: { identityHash: identityHashHex, steamId64, wallet },
+      update: { steamId64, wallet, linkedAt: new Date() },
+    });
+
     const lenPrefix = Buffer.alloc(4);
     lenPrefix.writeUInt32LE(identityBytes.length); // 32
     const data = new Uint8Array(
-      Buffer.concat([Buffer.from([GAME_DOTA2]), steamLe, lenPrefix, identityBytes]),
+      Buffer.concat([
+        Buffer.from([GAME_DOTA2]),
+        steamLe,
+        lenPrefix,
+        identityBytes,
+      ]),
     );
 
     const credential = SAS_CREDENTIAL as never;
     const schema = SAS_SCHEMA_DOTA2 as never;
     const nonce = wallet as never;
-    const [attestation] = await deriveAttestationPda({ credential, schema, nonce });
+    const [attestation] = await deriveAttestationPda({
+      credential,
+      schema,
+      nonce,
+    });
 
     const rpc = kit.createSolanaRpc(RPC_HTTP);
 
@@ -93,7 +115,9 @@ export class IdentityService {
       .getAccountInfo(attestation, { encoding: 'base64' })
       .send();
     if (existing.value !== null) {
-      this.logger.log(`attestation already exists for ${wallet}: ${attestation}`);
+      this.logger.log(
+        `attestation already exists for ${wallet}: ${attestation}`,
+      );
       return {
         attestation: String(attestation),
         signature: '',
@@ -103,8 +127,8 @@ export class IdentityService {
 
     const issuer = await this.keychain.getSigner('sas-issuer');
     const ix = getCreateAttestationInstruction({
-      payer: issuer as never,
-      authority: issuer as never,
+      payer: issuer,
+      authority: issuer,
       credential,
       schema,
       attestation,
@@ -124,7 +148,8 @@ export class IdentityService {
     const message = kit.pipe(
       kit.createTransactionMessage({ version: 0 }),
       (m) => kit.setTransactionMessageFeePayerSigner(issuer as never, m),
-      (m) => kit.setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+      (m) =>
+        kit.setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
       (m) => kit.appendTransactionMessageInstructions([ix], m),
     );
     const signed = await kit.signTransactionMessageWithSigners(message);
@@ -138,7 +163,18 @@ export class IdentityService {
     this.logger.log(
       `issued attestation ${attestation} for ${wallet} (sig ${signature})`,
     );
-    return { attestation: String(attestation), signature, alreadyExisted: false };
+    return {
+      attestation: String(attestation),
+      signature,
+      alreadyExisted: false,
+    };
+  }
+
+  async resolveSteamId(identityHashHex: string): Promise<string | null> {
+    const row = await this.prisma.steamIdentity.findUnique({
+      where: { identityHash: identityHashHex.toLowerCase() },
+    });
+    return row?.steamId64 ?? null;
   }
 
   /**
@@ -161,7 +197,8 @@ export class IdentityService {
       throw new BadRequestException('invalid wallet address');
     }
 
-    const { deriveAttestationPda, fetchMaybeAttestation } = await import('sas-lib');
+    const { deriveAttestationPda, fetchMaybeAttestation } =
+      await import('sas-lib');
     const kit = await import('@solana/kit');
 
     const [attestation] = await deriveAttestationPda({

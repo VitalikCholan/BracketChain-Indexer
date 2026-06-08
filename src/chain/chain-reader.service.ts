@@ -10,23 +10,11 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import idlJson from '../idl/bracket_chain.json';
 import { PayoutKind } from '../generated/prisma';
 
-/**
- * Phase 5.4: minimal Solana chain reader for the reconciliation cron.
- *
- * Lightweight by design — uses raw `Connection.getMultipleAccountsInfo` plus
- * Anchor's `BorshAccountsCoder` for decoding. We don't need full Anchor
- * Program (no IDL methods, no Provider) since reconciliation is read-only
- * and never sends transactions.
- *
- * Env: RPC_URL (Solana RPC endpoint), PROGRAM_ID (program PDA).
- */
 @Injectable()
 export class ChainReaderService implements OnModuleInit {
   private readonly logger = new Logger(ChainReaderService.name);
   private connection!: Connection;
   private coder!: BorshAccountsCoder;
-  /// Event decoder for the M-2 payout-replay path (reconstructs Payout rows
-  /// from a dropped TournamentCompleted webhook by re-parsing the on-chain tx).
   private eventParser!: EventParser;
   private programId!: PublicKey;
 
@@ -53,27 +41,15 @@ export class ChainReaderService implements OnModuleInit {
     );
   }
 
-  /**
-   * Fetch the cluster's current slot. Used by the reconciliation cron to
-   * stamp the freshness watermark on rows it touches.
-   */
   async getSlot(): Promise<number> {
     return this.connection.getSlot('confirmed');
   }
 
-  /**
-   * Batch-fetch Tournament accounts. Returns an array aligned with the
-   * input PDAs — `null` entries indicate accounts that don't exist or
-   * couldn't be decoded. One getMultipleAccountsInfo RPC for up to 100
-   * pubkeys (Solana's per-call cap).
-   */
   async fetchTournaments(
     pdas: PublicKey[],
   ): Promise<Array<DecodedTournament | null>> {
     if (pdas.length === 0) return [];
 
-    // Solana's getMultipleAccountsInfo caps at 100 entries per request.
-    // Chunk defensively even though the cron limits us to ~50 per pass.
     const CHUNK = 100;
     const out: Array<DecodedTournament | null> = [];
     for (let i = 0; i < pdas.length; i += CHUNK) {
@@ -88,7 +64,6 @@ export class ChainReaderService implements OnModuleInit {
           out.push(null);
           continue;
         }
-        // Defensive: validate program ownership before decoding.
         if (!info.owner.equals(this.programId)) {
           this.logger.warn(
             `Account ${slice[j]?.toBase58()} not owned by program; skipping`,
@@ -97,11 +72,6 @@ export class ChainReaderService implements OnModuleInit {
           continue;
         }
         try {
-          // Account name MUST match the IDL exactly (case-sensitive).
-          // BorshAccountsCoder does a strict `idl.accounts.find(a => a.name === name)`;
-          // mismatch throws "Account not found: <name>", which earlier looked
-          // like a closed-account / chain-state issue but was actually a TS-side
-          // map miss that broke every chain read since the cron shipped.
           const decoded = this.coder.decode<DecodedTournament>(
             'Tournament',
             info.data,
@@ -118,22 +88,6 @@ export class ChainReaderService implements OnModuleInit {
     return out;
   }
 
-  /**
-   * M-2: reconstruct a completed tournament's Payout rows from chain when the
-   * `TournamentCompleted` webhook was dropped (reconciliation backfills the
-   * status, but the Payout table is left empty and the UI shows "Pending"
-   * forever). The per-placement breakdown lives ONLY in the event — no account
-   * retains it — so we replay the completion transaction and re-parse its logs.
-   *
-   * `knownSig` is the cached `completedTxSig` when the completion webhook
-   * arrived but yielded 0 payouts; when the webhook was fully dropped it is
-   * null and we scan the PDA's recent signatures for the completion tx.
-   *
-   * Returns null when no completion event can be found, or when the event
-   * predates `placement_payouts` (pre-upgrade events carried no breakdown —
-   * unrecoverable from logs alone). Derivation mirrors
-   * HeliusParserService.handleTournamentCompleted; kept in sync deliberately.
-   */
   async fetchCompletionPayouts(
     pda: PublicKey,
     knownSig: string | null,

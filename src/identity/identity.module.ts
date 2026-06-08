@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
 import { IdentityController } from './identity.controller';
 import { IdentityService } from './identity.service';
 import { NonceStore } from './nonce.store';
@@ -14,6 +15,7 @@ import { SteamOpenIdService } from './steam-openid.service';
  */
 @Module({
   controllers: [IdentityController],
-  providers: [IdentityService, SteamOpenIdService, NonceStore],
+  providers: [IdentityService, SteamOpenIdService, NonceStore, PrismaService],
+  exports: [IdentityService],
 })
 export class IdentityModule {}

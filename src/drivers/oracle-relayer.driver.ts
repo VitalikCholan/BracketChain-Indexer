@@ -5,21 +5,9 @@ import { BracketChainClient, proposeResultOracle } from '@bracketchain/sdk';
 import { MatchStatus, ProposalSource } from '../generated/prisma';
 import { KeychainService, type KeyRole } from '../keys/keychain.service';
 import { PrismaService } from '../prisma.service';
+import { SwitchboardFeedService } from '../switchboard/switchboard-feed.service';
 import { PermissionlessDriver } from './permissionless-driver';
 
-/**
- * C-9 — oracle-relayer cron (V1.2 Oracle settlement).
- *
- * Scans for Active matches with a Switchboard feed bound (`switchboardFeed`
- * non-null, `proposalSource = None`) and pushes `propose_result_oracle` for
- * each, opening the dispute window with `source = Oracle`. Permissionless —
- * trust bottoms out in the feed account contents; the program enforces
- * freshness (`max_stale_slots`, `min_oracle_samples` from `ProtocolConfig`),
- * so the cron does not pre-check and simply retries next tick on rejection.
- *
- * Shares the `claim-payer` signing role (per `KEY_ROLES`: "claim_result +
- * propose_result_oracle (V1 / V1.2)").
- */
 @Injectable()
 export class OracleRelayerDriver extends PermissionlessDriver {
   protected readonly driverName = 'oracle-relayer';
@@ -27,13 +15,21 @@ export class OracleRelayerDriver extends PermissionlessDriver {
 
   private static readonly MAX_PER_TICK = 25;
 
+  private static readonly BUNDLED_TX_COMPUTE_UNITS = 400_000;
+
   private client?: BracketChainClient;
 
   constructor(
     keychain: KeychainService,
     private readonly prisma: PrismaService,
+    private readonly feeds: SwitchboardFeedService,
   ) {
     super(keychain);
+  }
+
+  private numSignatures(): number {
+    const n = Number(process.env.ORACLE_NUM_SIGNATURES ?? '1');
+    return Number.isInteger(n) && n > 0 ? n : 1;
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -65,9 +61,6 @@ export class OracleRelayerDriver extends PermissionlessDriver {
 
     let proposed = 0;
     for (const m of due) {
-      // L-1: skip a match we already pushed propose_result_oracle for last tick
-      // if it's still showing Active/None in the cache (the proposal hasn't
-      // re-indexed yet) — avoids a second redundant tx into the same window.
       const key = `${m.tournamentAddress}:${m.bracket}:${m.round}:${m.matchIndex}`;
       if (this.recentlyActed(key)) continue;
       try {
@@ -75,9 +68,6 @@ export class OracleRelayerDriver extends PermissionlessDriver {
         this.markActed(key);
         proposed++;
       } catch (err) {
-        // Per-match isolation: a stale row (already proposed but not re-indexed),
-        // a feed not yet fresh, or a transient RPC error must not abort the rest
-        // of the tick. The next tick re-evaluates from fresh cache state.
         this.logger.warn(
           `oracle-relayer: skip ${m.tournamentAddress} b${m.bracket}r${m.round}m${m.matchIndex} — ${(err as Error).message}`,
         );
@@ -96,21 +86,27 @@ export class OracleRelayerDriver extends PermissionlessDriver {
       switchboardFeed: string | null;
     },
   ): Promise<void> {
-    // `as never` bridges the linked-kit module boundary, same pattern as the
-    // other drivers. Runtime values are plain base58 strings.
+    const update = await this.feeds.buildFeedUpdateKitIxs(
+      m.switchboardFeed!,
+      String(client.signer!.address),
+      this.numSignatures(),
+    );
+
     const { txSignature } = await proposeResultOracle(client, {
       tournamentPda: m.tournamentAddress as never,
       bracket: m.bracket,
       round: m.round,
       matchIndex: m.matchIndex,
       switchboardFeed: m.switchboardFeed as never,
+      preInstructions: update.ixs,
+      lookupTables: update.lookupTables,
+      computeUnits: OracleRelayerDriver.BUNDLED_TX_COMPUTE_UNITS,
     });
     this.logger.log(
       `oracle-relayer: proposed ${m.tournamentAddress} b${m.bracket}r${m.round}m${m.matchIndex} tx=${txSignature}`,
     );
   }
 
-  /** Build (and cache) the signing SDK client for the `claim-payer` role. */
   private async getClient(): Promise<BracketChainClient> {
     if (this.client) return this.client;
     const rpcUrl = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
@@ -121,7 +117,7 @@ export class OracleRelayerDriver extends PermissionlessDriver {
     this.client = new BracketChainClient({
       rpc: rpcUrl,
       rpcSubscriptions: wsUrl,
-      signer: signer as never,
+      signer: signer,
       programAddress: programId as never,
       commitment: 'confirmed',
     });

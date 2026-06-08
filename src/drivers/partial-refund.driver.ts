@@ -11,17 +11,6 @@ import { KeychainService, type KeyRole } from '../keys/keychain.service';
 import { PrismaService } from '../prisma.service';
 import { PermissionlessDriver } from './permissionless-driver';
 
-/**
- * E-4 — partial-refund cron. Drives the **permissionless** `partial_refund_chunk`
- * to completion for partially-cancelled tournaments (Stage E, gate G8). Under
- * Policy A every participant is refunded their full entry fee + the organizer
- * gets their deposit back; the SDK method handles chunking, the organizer-ATA
- * deposit return, and idempotency (`refund_paid`).
- *
- * Selection from the read-cache (`status == PartialCancelled`); the SDK resolves
- * the still-unrefunded participants from chain each tick, so a tournament drops
- * out naturally once fully refunded (`partialRefundChunk` then submits nothing).
- */
 @Injectable()
 export class PartialRefundDriver extends PermissionlessDriver {
   protected readonly driverName = 'partial-refund';
@@ -52,14 +41,18 @@ export class PartialRefundDriver extends PermissionlessDriver {
     if (due.length === 0) return;
 
     const client = await this.getClient();
-    this.logger.log(`partial-refund: ${due.length} partially-cancelled tournament(s)`);
+    this.logger.log(
+      `partial-refund: ${due.length} partially-cancelled tournament(s)`,
+    );
 
     let processed = 0;
     for (const t of due) {
       try {
         if (await this.refundOne(client, t.address)) processed++;
       } catch (err) {
-        this.logger.warn(`partial-refund: skip ${t.address} — ${(err as Error).message}`);
+        this.logger.warn(
+          `partial-refund: skip ${t.address} — ${(err as Error).message}`,
+        );
       }
     }
     this.logger.log(`partial-refund: processed ${processed}/${due.length}`);
@@ -74,9 +67,12 @@ export class PartialRefundDriver extends PermissionlessDriver {
     // Throws if the tournament PDA is already closed (post rent-reclaim).
     await getTournament(client, tournamentPda);
 
-    const { refundsSubmitted, txSignatures } = await partialRefundChunk(client, {
-      tournamentPda,
-    });
+    const { refundsSubmitted, txSignatures } = await partialRefundChunk(
+      client,
+      {
+        tournamentPda,
+      },
+    );
     if (refundsSubmitted === 0 && txSignatures.length === 0) return false;
     this.logger.log(
       `partial-refund: ${address} refunds=${refundsSubmitted} txs=${txSignatures.length}`,
@@ -95,7 +91,7 @@ export class PartialRefundDriver extends PermissionlessDriver {
     this.client = new BracketChainClient({
       rpc: rpcUrl,
       rpcSubscriptions: wsUrl,
-      signer: signer as never,
+      signer: signer,
       programAddress: programId as never,
       commitment: 'confirmed',
     });

@@ -118,7 +118,9 @@ export abstract class PermissionlessDriver {
   protected async drive(): Promise<void> {
     if (!this.enabled()) return;
     if (this.running) {
-      this.logger.warn(`${this.driverName}: previous tick still running — skipping`);
+      this.logger.warn(
+        `${this.driverName}: previous tick still running — skipping`,
+      );
       return;
     }
     this.running = true;
@@ -126,10 +128,14 @@ export abstract class PermissionlessDriver {
     try {
       await this.tick();
     } catch (err) {
-      this.logger.error(`${this.driverName}: tick failed — ${(err as Error).message}`);
+      this.logger.error(
+        `${this.driverName}: tick failed — ${(err as Error).message}`,
+      );
     } finally {
       this.running = false;
-      this.logger.debug(`${this.driverName}: tick done in ${Date.now() - started}ms`);
+      this.logger.debug(
+        `${this.driverName}: tick done in ${Date.now() - started}ms`,
+      );
     }
   }
 

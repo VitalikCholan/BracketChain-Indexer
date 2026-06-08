@@ -21,7 +21,6 @@ jest.mock('../switchboard/switchboard-vrf.service', () => ({
   SwitchboardVrfService: class {},
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const sdk = require('@bracketchain/sdk') as {
   BracketChainClient: jest.Mock;
   revealSeed: jest.Mock;
@@ -32,7 +31,11 @@ const RANDOMNESS = 'Rand1111111111111111111111111111111111111111';
 const COMMIT_SLOT = 100;
 
 /** Shapes a decoded-tournament stub the way ChainReaderService returns it. */
-function decoded(opts: { randomness?: string; seedRevealed?: boolean; commitSlot?: number }) {
+function decoded(opts: {
+  randomness?: string;
+  seedRevealed?: boolean;
+  commitSlot?: number;
+}) {
   return {
     vrfRandomnessAccount: { toBase58: () => opts.randomness ?? RANDOMNESS },
     seedRevealed: opts.seedRevealed ?? false,
@@ -58,7 +61,9 @@ function makeDeps(opts: {
     buildRevealKitInstruction: jest.fn().mockResolvedValue({ ix: 'reveal' }),
   };
   const cost = { recordRandomnessRequest: jest.fn() };
-  const keychain = { getSigner: jest.fn().mockResolvedValue({ address: 'signer' }) };
+  const keychain = {
+    getSigner: jest.fn().mockResolvedValue({ address: 'signer' }),
+  };
   return { prisma, chain, switchboard, cost, keychain };
 }
 
@@ -169,7 +174,9 @@ describe('VrfRevealDriver', () => {
         candidates: [CAND, CAND2],
         decodedList: [
           decoded({ randomness: RANDOMNESS }),
-          decoded({ randomness: 'Rand2222222222222222222222222222222222222222' }),
+          decoded({
+            randomness: 'Rand2222222222222222222222222222222222222222',
+          }),
         ],
         currentSlot: COMMIT_SLOT + 100,
       });

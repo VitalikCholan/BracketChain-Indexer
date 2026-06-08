@@ -9,6 +9,7 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { KeychainModule } from './keys/keychain.module';
 import { SwitchboardModule } from './switchboard/switchboard.module';
 import { IdentityModule } from './identity/identity.module';
+import { OracleModule } from './oracle/oracle.module';
 import { DriversModule } from './drivers/drivers.module';
 
 @Module({
@@ -17,6 +18,7 @@ import { DriversModule } from './drivers/drivers.module';
     KeychainModule,
     SwitchboardModule,
     IdentityModule,
+    OracleModule,
     TournamentsModule,
     WebhooksModule,
     ReconciliationModule,
