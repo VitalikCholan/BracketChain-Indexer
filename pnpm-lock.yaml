@@ -4,16 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@bracketchain/sdk': file:./vendor/bracketchain-sdk-0.6.0-dev.tgz
-
 importers:
 
   .:
     dependencies:
       '@bracketchain/sdk':
-        specifier: file:vendor/bracketchain-sdk-0.6.0-dev.tgz
-        version: file:vendor/bracketchain-sdk-0.6.0-dev.tgz(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
+        specifier: ^0.6.0
+        version: 0.6.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@coral-xyz/anchor':
         specifier: ^0.32.1
         version: 0.32.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
@@ -434,9 +431,8 @@ packages:
   '@borewit/text-codec@0.2.2':
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
 
-  '@bracketchain/sdk@file:vendor/bracketchain-sdk-0.6.0-dev.tgz':
-    resolution: {integrity: sha512-FylhIkFCrRakOPvOrFNdqUaEBdaiNds/daP+i85WH4IkWROyLkUuogmJwfM3yQu7llk7+JYfEF5hPP0idL4BfQ==, tarball: file:vendor/bracketchain-sdk-0.6.0-dev.tgz}
-    version: 0.6.0-dev
+  '@bracketchain/sdk@0.6.0':
+    resolution: {integrity: sha512-QUGSkiKFWCLM5ifkY5NGoSMDhb+RzuWQbgPnEEu8isMQUlrWZLUMdgBMX5T8GMvf1sHs6PiZ0zLNFmqG9+KRWw==}
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -5438,7 +5434,7 @@ snapshots:
 
   '@borewit/text-codec@0.2.2': {}
 
-  '@bracketchain/sdk@file:vendor/bracketchain-sdk-0.6.0-dev.tgz(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)':
+  '@bracketchain/sdk@0.6.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)':
     dependencies:
       '@solana-program/compute-budget': 0.15.0(@solana/kit@6.9.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6))
       '@solana-program/system': 0.12.2(@solana/kit@6.9.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6))
