@@ -117,7 +117,7 @@ model Payout {
   placement         Int?
   txSignature       String
   createdAt         DateTime   @default(now())
-.
+
   @@unique([txSignature, recipient, kind])
   @@index([tournamentAddress])
 }
