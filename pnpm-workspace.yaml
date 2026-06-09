@@ -1,0 +1,2 @@
+overrides:
+  '@bracketchain/sdk': file:./vendor/bracketchain-sdk-0.6.0-dev.tgz

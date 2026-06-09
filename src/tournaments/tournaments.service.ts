@@ -8,6 +8,8 @@ import type {
   TournamentStatus,
 } from '../generated/prisma';
 
+export type TournamentWithCount = Tournament & { participantCount: number };
+
 @Injectable()
 export class TournamentsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -34,13 +36,18 @@ export class TournamentsService {
   async list(params: {
     status?: TournamentStatus;
     limit?: number;
-  }): Promise<Tournament[]> {
+  }): Promise<TournamentWithCount[]> {
     const { status, limit = 20 } = params;
-    return this.prisma.tournament.findMany({
+    const rows = await this.prisma.tournament.findMany({
       where: status ? { status } : undefined,
       orderBy: { createdAt: 'desc' },
       take: limit,
+      include: { _count: { select: { participants: true } } },
     });
+    return rows.map(({ _count, ...rest }) => ({
+      ...rest,
+      participantCount: _count.participants,
+    }));
   }
 
   /**
@@ -48,12 +55,16 @@ export class TournamentsService {
    * Throws NotFoundException if address is unknown — frontend SWR layer
    * catches and falls back to chain.
    */
-  async getOne(address: string): Promise<Tournament> {
-    const row = await this.prisma.tournament.findUnique({ where: { address } });
+  async getOne(address: string): Promise<TournamentWithCount> {
+    const row = await this.prisma.tournament.findUnique({
+      where: { address },
+      include: { _count: { select: { participants: true } } },
+    });
     if (!row) {
       throw new NotFoundException(`Tournament ${address} not found`);
     }
-    return row;
+    const { _count, ...rest } = row;
+    return { ...rest, participantCount: _count.participants };
   }
 
   async getPayouts(address: string): Promise<Payout[]> {

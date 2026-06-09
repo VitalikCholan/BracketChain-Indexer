@@ -1,0 +1,189 @@
+import { MatchStatus, ProposalSource } from '../generated/prisma';
+import { OracleRelayerDriver } from './oracle-relayer.driver';
+
+// Mock the linked SDK so the driver's scan→propose logic runs offline: no RPC,
+// no signer crypto. `proposeResultOracle` becomes an observable stub.
+jest.mock('@bracketchain/sdk', () => ({
+  BracketChainClient: jest
+    .fn()
+    .mockImplementation(() => ({ signer: { address: 'ClaimPayer11111' } })),
+  proposeResultOracle: jest.fn(),
+}));
+
+const sdk = require('@bracketchain/sdk') as {
+  BracketChainClient: jest.Mock;
+  proposeResultOracle: jest.Mock;
+};
+
+const TOURNAMENT_PDA = 'Tour1111111111111111111111111111111111111111';
+const FEED_A = 'Feed1111111111111111111111111111111111111111';
+const FEED_B = 'Feed2222222222222222222222222222222222222222';
+
+type MatchRow = {
+  tournamentAddress: string;
+  bracket: number;
+  round: number;
+  matchIndex: number;
+  switchboardFeed: string | null;
+};
+
+function makePrismaMock(due: MatchRow[]) {
+  return {
+    match: { findMany: jest.fn().mockResolvedValue(due) },
+  };
+}
+
+const MATCH_A: MatchRow = {
+  tournamentAddress: TOURNAMENT_PDA,
+  bracket: 0,
+  round: 0,
+  matchIndex: 0,
+  switchboardFeed: FEED_A,
+};
+const MATCH_B: MatchRow = {
+  tournamentAddress: TOURNAMENT_PDA,
+  bracket: 0,
+  round: 0,
+  matchIndex: 1,
+  switchboardFeed: FEED_B,
+};
+
+function makeDriver(
+  prisma: ReturnType<typeof makePrismaMock>,
+): OracleRelayerDriver {
+  process.env.PROGRAM_ID = 'Prog1111111111111111111111111111111111111111';
+  const keychain = {
+    getSigner: jest.fn().mockResolvedValue({ address: 'signer' }),
+  };
+  // Phase 1.5: the driver cranks the feed before proposing — stub the
+  // Switchboard feed service so ticks stay offline.
+  const feeds = {
+    buildFeedUpdateKitIxs: jest
+      .fn()
+      .mockResolvedValue({ ixs: [], lookupTables: {} }),
+  };
+  return new OracleRelayerDriver(
+    keychain as never,
+    prisma as never,
+    feeds as never,
+  );
+}
+
+type DriverPrivate = { tick: () => Promise<void>; drive: () => Promise<void> };
+const asPrivate = (d: OracleRelayerDriver) => d as unknown as DriverPrivate;
+
+describe('OracleRelayerDriver', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    sdk.proposeResultOracle.mockResolvedValue({ txSignature: 'tx' });
+  });
+
+  describe('scan query', () => {
+    it('targets only Active, source=None, feed-bound matches', async () => {
+      const prisma = makePrismaMock([]);
+      await asPrivate(makeDriver(prisma)).tick();
+
+      const arg = prisma.match.findMany.mock.calls[0][0];
+      expect(arg.where).toEqual({
+        status: MatchStatus.Active,
+        proposalSource: ProposalSource.None,
+        switchboardFeed: { not: null },
+      });
+      expect(arg.take).toBe(25);
+      expect(arg.orderBy).toEqual({ committedAt: 'asc' });
+    });
+
+    it('no due matches → builds no client, proposes nothing', async () => {
+      const prisma = makePrismaMock([]);
+      await asPrivate(makeDriver(prisma)).tick();
+      expect(sdk.BracketChainClient).not.toHaveBeenCalled();
+      expect(sdk.proposeResultOracle).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('proposeOne', () => {
+    it('passes through tournament/coords/feed', async () => {
+      const prisma = makePrismaMock([MATCH_A]);
+      await asPrivate(makeDriver(prisma)).tick();
+
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(1);
+      const arg = sdk.proposeResultOracle.mock.calls[0][1];
+      // Phase 1.5 adds preInstructions/lookupTables/computeUnits — assert the
+      // core coordinates pass through unchanged.
+      expect(arg).toMatchObject({
+        tournamentPda: TOURNAMENT_PDA,
+        bracket: 0,
+        round: 0,
+        matchIndex: 0,
+        switchboardFeed: FEED_A,
+      });
+    });
+
+    it('per-match error isolation → one failure does not abort the tick', async () => {
+      sdk.proposeResultOracle
+        .mockRejectedValueOnce(new Error('feed not fresh'))
+        .mockResolvedValueOnce({ txSignature: 'tx2' });
+      const prisma = makePrismaMock([MATCH_A, MATCH_B]);
+
+      await asPrivate(makeDriver(prisma)).tick(); // must not throw
+
+      // Both attempts made; first failed cleanly, second succeeded.
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(2);
+      expect(sdk.proposeResultOracle.mock.calls[1][1].matchIndex).toBe(1);
+    });
+  });
+
+  describe('L-1: in-flight dedup', () => {
+    it('a match proposed last tick is skipped this tick until re-indexed', async () => {
+      const prisma = makePrismaMock([MATCH_A]); // findMany returns it every tick
+      const driver = makeDriver(prisma);
+
+      await asPrivate(driver).tick(); // proposes + marks in-flight
+      await asPrivate(driver).tick(); // same row still due → suppressed
+
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(1);
+    });
+
+    it('a match whose propose threw is NOT marked → retried next tick', async () => {
+      sdk.proposeResultOracle
+        .mockRejectedValueOnce(new Error('feed not fresh'))
+        .mockResolvedValueOnce({ txSignature: 'tx2' });
+      const prisma = makePrismaMock([MATCH_A]);
+      const driver = makeDriver(prisma);
+
+      await asPrivate(driver).tick(); // throws → not marked
+      await asPrivate(driver).tick(); // retried, succeeds
+
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('production guard (via drive)', () => {
+    afterEach(() => {
+      delete process.env.PERMISSIONLESS_DRIVERS_ENABLED;
+      delete process.env.PERMISSIONLESS_ORACLE_RELAYER_ENABLED;
+    });
+
+    it('both flags unset → tick never runs (default-off)', async () => {
+      const prisma = makePrismaMock([MATCH_A]);
+      await asPrivate(makeDriver(prisma)).drive();
+      expect(prisma.match.findMany).not.toHaveBeenCalled();
+    });
+
+    it('master switch on but driver flag off → still off', async () => {
+      process.env.PERMISSIONLESS_DRIVERS_ENABLED = 'true';
+      const prisma = makePrismaMock([MATCH_A]);
+      await asPrivate(makeDriver(prisma)).drive();
+      expect(prisma.match.findMany).not.toHaveBeenCalled();
+    });
+
+    it('both flags on → tick runs', async () => {
+      process.env.PERMISSIONLESS_DRIVERS_ENABLED = 'true';
+      process.env.PERMISSIONLESS_ORACLE_RELAYER_ENABLED = 'true';
+      const prisma = makePrismaMock([MATCH_A]);
+      await asPrivate(makeDriver(prisma)).drive();
+      expect(prisma.match.findMany).toHaveBeenCalledTimes(1);
+      expect(sdk.proposeResultOracle).toHaveBeenCalledTimes(1);
+    });
+  });
+});

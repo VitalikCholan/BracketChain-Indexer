@@ -6,5 +6,6 @@ import { WebhooksController } from './webhooks.controller';
 @Module({
   controllers: [WebhooksController],
   providers: [HeliusParserService, PrismaService],
+  exports: [HeliusParserService],
 })
 export class WebhooksModule {}

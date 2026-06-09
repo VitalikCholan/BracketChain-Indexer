@@ -1,0 +1,17 @@
+# Build artifacts + deps — reinstalled/rebuilt inside the image.
+node_modules
+dist
+src/generated
+
+# Secrets + local config — injected at runtime via env_file, never baked in.
+.env
+.env.*
+.keys
+
+# VCS + misc
+.git
+.gitignore
+*.log
+npm-debug.log*
+.DS_Store
+coverage

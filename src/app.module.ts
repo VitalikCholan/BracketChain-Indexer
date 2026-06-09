@@ -6,13 +6,23 @@ import { HealthController } from './health/health.controller';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
+import { KeychainModule } from './keys/keychain.module';
+import { SwitchboardModule } from './switchboard/switchboard.module';
+import { IdentityModule } from './identity/identity.module';
+import { OracleModule } from './oracle/oracle.module';
+import { DriversModule } from './drivers/drivers.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    KeychainModule,
+    SwitchboardModule,
+    IdentityModule,
+    OracleModule,
     TournamentsModule,
     WebhooksModule,
     ReconciliationModule,
+    DriversModule,
   ],
   controllers: [HealthController],
   providers: [PrismaService],

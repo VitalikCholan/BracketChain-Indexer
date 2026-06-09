@@ -1,9 +1,16 @@
 import { HeliusParserService } from './helius-parser.service';
+import { Prisma } from '../generated/prisma';
 import type { HeliusTransaction } from './dto/helius-payload.dto';
 import type {
+  DisputeResolvedEvent,
+  MatchFeedBoundEvent,
+  MatchLobbyCommittedEvent,
   MatchReportedEvent,
   ParticipantRegisteredEvent,
   RefundIssuedEvent,
+  ResultClaimedEvent,
+  ResultDisputedEvent,
+  ResultProposedEvent,
   TournamentCancelledEvent,
   TournamentCompletedEvent,
   TournamentCreatedEvent,
@@ -48,7 +55,13 @@ function makePrismaMock() {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     match: {
+      // MatchReported uses the direct upsert (terminal Completed write).
       upsert: jest.fn().mockResolvedValue(undefined),
+      // M-3: applyMatchEnvelope now writes via an atomic guarded updateMany
+      // (status != Completed). Default count:1 = an existing non-terminal row
+      // was updated (happy path). create is only reached when count:0.
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      create: jest.fn().mockResolvedValue(undefined),
     },
     payout: {
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -112,6 +125,36 @@ type ParserPrivate = {
     sig: string,
   ) => Promise<void>;
   handleRefundIssued: (data: RefundIssuedEvent, sig: string) => Promise<void>;
+  handleResultProposed: (
+    data: ResultProposedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleResultDisputed: (
+    data: ResultDisputedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleResultClaimed: (
+    data: ResultClaimedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleDisputeResolved: (
+    data: DisputeResolvedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleMatchLobbyCommitted: (
+    data: MatchLobbyCommittedEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
+  handleMatchFeedBound: (
+    data: MatchFeedBoundEvent,
+    tx: HeliusTransaction,
+    sig: string,
+  ) => Promise<void>;
 };
 
 function asPrivate(service: HeliusParserService): ParserPrivate {
@@ -341,16 +384,18 @@ describe('HeliusParserService', () => {
       expect(prisma.match.upsert).toHaveBeenCalledTimes(1);
       const call = prisma.match.upsert.mock.calls[0][0] as {
         where: {
-          tournamentAddress_round_matchIndex: {
+          tournamentAddress_bracket_round_matchIndex: {
             tournamentAddress: string;
+            bracket: number;
             round: number;
             matchIndex: number;
           };
         };
         create: Record<string, unknown>;
       };
-      const key = call.where.tournamentAddress_round_matchIndex;
+      const key = call.where.tournamentAddress_bracket_round_matchIndex;
       expect(key.tournamentAddress).toBe(TOURNAMENT_PDA);
+      expect(key.bracket).toBe(0); // single-elim default when event omits bracket
       expect(key.round).toBe(1);
       expect(key.matchIndex).toBe(0);
       expect(call.create.winner).toBe(PLAYER_A);
@@ -519,9 +564,12 @@ describe('HeliusParserService', () => {
 
       expect(prisma.tournament.update).toHaveBeenCalledTimes(1);
       const call = prisma.tournament.update.mock.calls[0][0] as {
-        data: { status: string };
+        data: { status: string; completedAt: Date };
       };
       expect(call.data.status).toBe('Cancelled');
+      // M-1: cancellation stamps completedAt from the event's cancelled_at so
+      // the close-terminal rent-reclaim cron can pick the row up.
+      expect(call.data.completedAt).toEqual(new Date(TX_TIMESTAMP_SEC * 1000));
     });
 
     it('re-delivery → idempotent update', async () => {
@@ -637,6 +685,437 @@ describe('HeliusParserService', () => {
     });
   });
 
+  // ── B-14 settlement-envelope events (share applyMatchEnvelope) ──────────────
+
+  const PROPOSED_AT_SEC = TX_TIMESTAMP_SEC;
+  const CLAIM_DEADLINE_SEC = TX_TIMESTAMP_SEC + 3600;
+  const FORCE_CLAIM_DEADLINE_SEC = TX_TIMESTAMP_SEC + 86_400;
+
+  /** Extracts the where-guard + data payload from the first guarded updateMany
+   *  applyMatchEnvelope makes (the happy path: one updateMany, no create). */
+  function lastMatchEnvelope() {
+    expect(prisma.match.updateMany).toHaveBeenCalled();
+    return prisma.match.updateMany.mock.calls[0][0] as {
+      where: {
+        tournamentAddress: string;
+        bracket: number;
+        round: number;
+        matchIndex: number;
+        status: { not: string };
+      };
+      data: Record<string, unknown>;
+    };
+  }
+
+  /** Simulates the unique-constraint violation Prisma throws when create races
+   *  a concurrent writer (or hits an already-Completed row). */
+  function uniqueViolation() {
+    return new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed',
+      { code: 'P2002', clientVersion: 'test' },
+    );
+  }
+
+  describe('ResultProposed', () => {
+    const data: ResultProposedEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 1,
+      match_index: 0,
+      source: 1, // Player
+      proposer: PLAYER_A,
+      proposed_winner: PLAYER_A,
+      claim_deadline: CLAIM_DEADLINE_SEC,
+      proposed_at: PROPOSED_AT_SEC,
+    };
+
+    it('happy-path → writes envelope + PendingConfirmation status', async () => {
+      await asPrivate(service).handleResultProposed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchEnvelope();
+      expect(call.where).toEqual({
+        tournamentAddress: TOURNAMENT_PDA,
+        bracket: 0,
+        round: 1,
+        matchIndex: 0,
+        status: { not: 'Completed' },
+      });
+      expect(call.data.status).toBe('PendingConfirmation');
+      expect(call.data.proposalSource).toBe('Player');
+      expect(call.data.proposer).toBe(PLAYER_A);
+      expect(call.data.proposedWinner).toBe(PLAYER_A);
+      expect(call.data.disputed).toBe(false);
+      expect((call.data.claimDeadline as Date).getTime()).toBe(
+        CLAIM_DEADLINE_SEC * 1000,
+      );
+      expect((call.data.proposedAt as Date).getTime()).toBe(
+        PROPOSED_AT_SEC * 1000,
+      );
+      // Happy path: the existing row was updated; create must not run.
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+
+    it('terminal-status guard → cannot downgrade a Completed match', async () => {
+      // Completed row: the guarded updateMany matches nothing (status != Completed),
+      // create hits the unique constraint, and the retry update is still a no-op.
+      prisma.match.updateMany.mockResolvedValue({ count: 0 });
+      prisma.match.create.mockRejectedValueOnce(uniqueViolation());
+
+      await expect(
+        asPrivate(service).handleResultProposed(data, makeTx(), TX_SIGNATURE),
+      ).resolves.not.toThrow();
+
+      // initial guarded update + retry after the P2002, both status-guarded so
+      // a Completed row is never the target of a downgrade.
+      expect(prisma.match.updateMany).toHaveBeenCalledTimes(2);
+      for (const [arg] of prisma.match.updateMany.mock.calls) {
+        expect((arg as { where: { status: unknown } }).where.status).toEqual({
+          not: 'Completed',
+        });
+      }
+    });
+
+    it('creates a bare row when the match was not seeded yet', async () => {
+      prisma.match.updateMany.mockResolvedValueOnce({ count: 0 });
+      await asPrivate(service).handleResultProposed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      expect(prisma.match.create).toHaveBeenCalledTimes(1);
+      const created = prisma.match.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(created.data.tournamentAddress).toBe(TOURNAMENT_PDA);
+      expect(created.data.round).toBe(1);
+      expect(created.data.matchIndex).toBe(0);
+      expect(created.data.status).toBe('PendingConfirmation');
+    });
+
+    it('concurrent create race → retries the guarded update on P2002', async () => {
+      // updateMany count:0 (no row yet) → create loses the race (P2002) →
+      // retry updateMany now finds the freshly-created non-terminal row.
+      prisma.match.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
+      prisma.match.create.mockRejectedValueOnce(uniqueViolation());
+
+      await expect(
+        asPrivate(service).handleResultProposed(data, makeTx(), TX_SIGNATURE),
+      ).resolves.not.toThrow();
+
+      expect(prisma.match.create).toHaveBeenCalledTimes(1);
+      expect(prisma.match.updateMany).toHaveBeenCalledTimes(2);
+    });
+
+    it('rethrows a non-unique create error', async () => {
+      prisma.match.updateMany.mockResolvedValueOnce({ count: 0 });
+      prisma.match.create.mockRejectedValueOnce(new Error('db down'));
+      await expect(
+        asPrivate(service).handleResultProposed(data, makeTx(), TX_SIGNATURE),
+      ).rejects.toThrow(/db down/);
+    });
+
+    it('rejects an invalid proposal source (None / out-of-range)', async () => {
+      await expect(
+        asPrivate(service).handleResultProposed(
+          { ...data, source: 0 },
+          makeTx(),
+          TX_SIGNATURE,
+        ),
+      ).rejects.toThrow(/invalid source/);
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleResultProposed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ResultDisputed', () => {
+    const data: ResultDisputedEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 1,
+      match_index: 0,
+      disputer: PLAYER_B,
+      dispute_reason: 2,
+      force_claim_deadline: FORCE_CLAIM_DEADLINE_SEC,
+      disputed_at: TX_TIMESTAMP_SEC,
+    };
+
+    it('happy-path → Disputed status + re-armed force-claim deadline', async () => {
+      await asPrivate(service).handleResultDisputed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchEnvelope();
+      expect(call.where.status).toEqual({ not: 'Completed' });
+      expect(call.data.status).toBe('Disputed');
+      expect(call.data.disputed).toBe(true);
+      expect(call.data.disputeReason).toBe(2);
+      // claimDeadline is re-armed from force_claim_deadline (the +24h window).
+      expect((call.data.claimDeadline as Date).getTime()).toBe(
+        FORCE_CLAIM_DEADLINE_SEC * 1000,
+      );
+    });
+
+    it('terminal-status guard → cannot downgrade a Completed match', async () => {
+      prisma.match.updateMany.mockResolvedValue({ count: 0 });
+      prisma.match.create.mockRejectedValueOnce(uniqueViolation());
+      await expect(
+        asPrivate(service).handleResultDisputed(data, makeTx(), TX_SIGNATURE),
+      ).resolves.not.toThrow();
+      for (const [arg] of prisma.match.updateMany.mock.calls) {
+        expect((arg as { where: { status: unknown } }).where.status).toEqual({
+          not: 'Completed',
+        });
+      }
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleResultDisputed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ResultClaimed', () => {
+    const data: ResultClaimedEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 1,
+      match_index: 0,
+      winner: PLAYER_A,
+      forced: false,
+      claimed_at: TX_TIMESTAMP_SEC,
+    };
+
+    it('happy-path → Completed with winner + reportedTxSig', async () => {
+      await asPrivate(service).handleResultClaimed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchEnvelope();
+      expect(call.data.status).toBe('Completed');
+      expect(call.data.winner).toBe(PLAYER_A);
+      expect(call.data.reportedTxSig).toBe(TX_SIGNATURE);
+      expect((call.data.reportedAt as Date).getTime()).toBe(
+        TX_TIMESTAMP_SEC * 1000,
+      );
+    });
+
+    it('forced claim (force_claim_disputed) → still Completed with winner', async () => {
+      await asPrivate(service).handleResultClaimed(
+        { ...data, forced: true },
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      const call = lastMatchEnvelope();
+      expect(call.data.status).toBe('Completed');
+      expect(call.data.winner).toBe(PLAYER_A);
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleResultClaimed(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DisputeResolved', () => {
+    const data: DisputeResolvedEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 1,
+      match_index: 0,
+      arbitrator: ORGANIZER,
+      winner: PLAYER_B,
+      resolved_at: TX_TIMESTAMP_SEC,
+    };
+
+    it('happy-path → arbitrated winner finalizes the match (Completed)', async () => {
+      await asPrivate(service).handleDisputeResolved(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchEnvelope();
+      expect(call.data.status).toBe('Completed');
+      expect(call.data.winner).toBe(PLAYER_B);
+      expect(call.data.reportedTxSig).toBe(TX_SIGNATURE);
+      expect((call.data.reportedAt as Date).getTime()).toBe(
+        TX_TIMESTAMP_SEC * 1000,
+      );
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleDisputeResolved(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MatchLobbyCommitted', () => {
+    const COMMITTED_AT_SEC = TX_TIMESTAMP_SEC;
+    const LOBBY_ID = [
+      0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+      0x0d, 0x0e, 0x0f, 0x10,
+    ];
+    const data: MatchLobbyCommittedEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 0,
+      match_index: 1,
+      lobby_id: LOBBY_ID,
+      committed_at: COMMITTED_AT_SEC,
+    };
+
+    it('happy-path → writes lobbyId + committedAt with Active status', async () => {
+      await asPrivate(service).handleMatchLobbyCommitted(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchEnvelope();
+      expect(call.where).toEqual({
+        tournamentAddress: TOURNAMENT_PDA,
+        bracket: 0,
+        round: 0,
+        matchIndex: 1,
+        status: { not: 'Completed' },
+      });
+      expect(call.data.status).toBe('Active');
+      // Bytes column expects a fresh-ArrayBuffer Uint8Array (Prisma 7 quirk).
+      expect(call.data.lobbyId).toBeInstanceOf(Uint8Array);
+      expect(Array.from(call.data.lobbyId as Uint8Array)).toEqual(LOBBY_ID);
+      expect((call.data.committedAt as Date).getTime()).toBe(
+        COMMITTED_AT_SEC * 1000,
+      );
+      // Feed binding is a separate event — must not be set here.
+      expect(call.data.switchboardFeed).toBeUndefined();
+    });
+
+    it('terminal-status guard → cannot downgrade a Completed match', async () => {
+      prisma.match.updateMany.mockResolvedValue({ count: 0 });
+      prisma.match.create.mockRejectedValueOnce(uniqueViolation());
+      await expect(
+        asPrivate(service).handleMatchLobbyCommitted(
+          data,
+          makeTx(),
+          TX_SIGNATURE,
+        ),
+      ).resolves.not.toThrow();
+      for (const [arg] of prisma.match.updateMany.mock.calls) {
+        expect((arg as { where: { status: unknown } }).where.status).toEqual({
+          not: 'Completed',
+        });
+      }
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleMatchLobbyCommitted(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MatchFeedBound', () => {
+    const SWITCHBOARD_FEED = 'Feed1111111111111111111111111111111111111111';
+    const data: MatchFeedBoundEvent = {
+      tournament: TOURNAMENT_PDA,
+      bracket: 0,
+      round: 0,
+      match_index: 1,
+      switchboard_feed: SWITCHBOARD_FEED,
+    };
+
+    it('happy-path → writes switchboardFeed with Active status', async () => {
+      await asPrivate(service).handleMatchFeedBound(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+
+      const call = lastMatchEnvelope();
+      expect(call.where).toEqual({
+        tournamentAddress: TOURNAMENT_PDA,
+        bracket: 0,
+        round: 0,
+        matchIndex: 1,
+        status: { not: 'Completed' },
+      });
+      expect(call.data.status).toBe('Active');
+      expect(call.data.switchboardFeed).toBe(SWITCHBOARD_FEED);
+      // Commit fields belong to the other event — must not be set here.
+      expect(call.data.lobbyId).toBeUndefined();
+      expect(call.data.committedAt).toBeUndefined();
+    });
+
+    it('terminal-status guard → cannot downgrade a Completed match', async () => {
+      prisma.match.updateMany.mockResolvedValue({ count: 0 });
+      prisma.match.create.mockRejectedValueOnce(uniqueViolation());
+      await expect(
+        asPrivate(service).handleMatchFeedBound(data, makeTx(), TX_SIGNATURE),
+      ).resolves.not.toThrow();
+      for (const [arg] of prisma.match.updateMany.mock.calls) {
+        expect((arg as { where: { status: unknown } }).where.status).toEqual({
+          not: 'Completed',
+        });
+      }
+    });
+
+    it('skips when Tournament row missing (FK guard)', async () => {
+      prisma.tournament.findUnique.mockResolvedValueOnce(null);
+      await asPrivate(service).handleMatchFeedBound(
+        data,
+        makeTx(),
+        TX_SIGNATURE,
+      );
+      expect(prisma.match.updateMany).not.toHaveBeenCalled();
+      expect(prisma.match.create).not.toHaveBeenCalled();
+    });
+  });
+
   // ── processBatch (dispatcher smoke) ────────────────────────────────────────
 
   describe('processBatch', () => {
@@ -665,6 +1144,57 @@ describe('HeliusParserService', () => {
         makeTx({ meta: { logMessages: [] } }),
       ]);
       expect(result).toEqual({ processed: 1, events: 0 });
+    });
+
+    // ── L-3: per-event isolation ────────────────────────────────────────────
+    // A handler that throws must not drop the sibling events decoded from the
+    // same tx. We stub the EventParser to emit one event that throws (unknown
+    // payout_preset index → handleTournamentCreated throws before any write)
+    // followed by a well-formed one that must still persist.
+    it('a throwing event does not abort its siblings in the same tx', async () => {
+      const GOOD_PDA = 'Good1111111111111111111111111111111111111111';
+      const badEvent = {
+        name: 'TournamentCreated',
+        data: {
+          event_version: 1,
+          tournament: TOURNAMENT_PDA,
+          organizer: ORGANIZER,
+          token_mint: TOKEN_MINT,
+          entry_fee: 1000,
+          max_participants: 4,
+          payout_preset: 99, // invalid index → throws
+          registration_deadline: TX_TIMESTAMP_SEC,
+          name: 'bad',
+        },
+      };
+      const goodEvent = {
+        name: 'TournamentCreated',
+        data: {
+          event_version: 1,
+          tournament: GOOD_PDA,
+          organizer: ORGANIZER,
+          token_mint: TOKEN_MINT,
+          entry_fee: 1000,
+          max_participants: 4,
+          payout_preset: 0, // valid
+          registration_deadline: TX_TIMESTAMP_SEC,
+          name: 'good',
+        },
+      };
+      // Replace the real Anchor EventParser with a stub emitting both events.
+      const parserStub = { parseLogs: () => [badEvent, goodEvent] };
+      (service as unknown as { parser: typeof parserStub }).parser = parserStub;
+
+      const result = await service.processBatch([
+        makeTx({ meta: { logMessages: ['program log: x'] } }),
+      ]);
+
+      // Bad event threw (counted out), good event still handled.
+      expect(result).toEqual({ processed: 1, events: 1 });
+      expect(prisma.tournament.upsert).toHaveBeenCalledTimes(1);
+      expect(prisma.tournament.upsert.mock.calls[0][0].where).toEqual({
+        address: GOOD_PDA,
+      });
     });
   });
 });

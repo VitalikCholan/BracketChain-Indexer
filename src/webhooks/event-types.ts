@@ -59,6 +59,9 @@ export interface TournamentStartedEvent {
 
 export interface MatchReportedEvent {
   tournament: EventPubkey;
+  /** Bracket lane (C9). Added in Stage B; `0` for single-elim. Optional so
+   *  pre-Stage-B webhook replays still decode (parser defaults to 0). */
+  bracket?: EventNumber;
   round: EventNumber;
   match_index: EventNumber;
   winner: EventPubkey;
@@ -95,6 +98,106 @@ export interface RefundIssuedEvent {
   amount: EventBigInt;
 }
 
+// ── Stage B: player-reported / oracle settlement envelope events (B-14) ──────
+// `MatchReported` stays the canonical "match final, advance the bracket" signal
+// emitted by every finalize path. The four below are the settlement-envelope
+// granularity layered on top: who proposed, who disputed, and how a pending
+// result ultimately closed. All carry the (bracket, round, match_index) key.
+
+export interface ResultProposedEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  /** `ProposalSource` discriminant (1 = Player, 2 = Oracle, 3 = GameServer). */
+  source: EventNumber;
+  proposer: EventPubkey;
+  proposed_winner: EventPubkey;
+  /** Deadline after which `claim_result` may permissionlessly finalize. */
+  claim_deadline: EventNumber;
+  proposed_at: EventNumber;
+}
+
+export interface ResultDisputedEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  disputer: EventPubkey;
+  dispute_reason: EventNumber;
+  /** Re-armed deadline after which `force_claim_disputed` may finalize. */
+  force_claim_deadline: EventNumber;
+  disputed_at: EventNumber;
+}
+
+export interface ResultClaimedEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  winner: EventPubkey;
+  /** `true` when finalized via `force_claim_disputed` rather than `claim_result`. */
+  forced: boolean;
+  claimed_at: EventNumber;
+}
+
+export interface DisputeResolvedEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  arbitrator: EventPubkey;
+  winner: EventPubkey;
+  resolved_at: EventNumber;
+}
+
+// ── Stage C (V1.2 Oracle settlement) commitment-ceremony events ──────────────
+// Only the commit/bind ceremony needs new events. The oracle *result* reuses
+// V1's `ResultProposed` (`source = Oracle`); claim/dispute/resolve fire V1's
+// existing events unchanged — the parser differentiates Oracle from Player on
+// `ResultProposed.source`.
+
+export interface MatchLobbyCommittedEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  /** Organizer-chosen pre-match lobby identifier (16 bytes, [u8;16] on chain). */
+  lobby_id: number[];
+  committed_at: EventNumber;
+}
+
+export interface MatchFeedBoundEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  /** Switchboard On-Demand `PullFeedAccountData` PDA bound to this match. */
+  switchboard_feed: EventPubkey;
+}
+
+export interface TournamentPartiallyCancelledEvent {
+  tournament: EventPubkey;
+  authority: EventPubkey;
+  cancelled_at: EventNumber;
+}
+
+export interface TournamentClosedEvent {
+  tournament: EventPubkey;
+  accounts_closed: EventNumber;
+  root_closed: boolean;
+}
+
+export interface FinalSettledEvent {
+  tournament: EventPubkey;
+  bracket: EventNumber;
+  round: EventNumber;
+  match_index: EventNumber;
+  arbitrator: EventPubkey;
+  winner: EventPubkey;
+  settled_at: EventNumber;
+}
+
 export type BracketChainEvent =
   | { name: 'TournamentCreated'; data: TournamentCreatedEvent }
   | { name: 'ParticipantRegistered'; data: ParticipantRegisteredEvent }
@@ -102,4 +205,16 @@ export type BracketChainEvent =
   | { name: 'MatchReported'; data: MatchReportedEvent }
   | { name: 'TournamentCompleted'; data: TournamentCompletedEvent }
   | { name: 'TournamentCancelled'; data: TournamentCancelledEvent }
-  | { name: 'RefundIssued'; data: RefundIssuedEvent };
+  | { name: 'RefundIssued'; data: RefundIssuedEvent }
+  | { name: 'ResultProposed'; data: ResultProposedEvent }
+  | { name: 'ResultDisputed'; data: ResultDisputedEvent }
+  | { name: 'ResultClaimed'; data: ResultClaimedEvent }
+  | { name: 'DisputeResolved'; data: DisputeResolvedEvent }
+  | { name: 'MatchLobbyCommitted'; data: MatchLobbyCommittedEvent }
+  | { name: 'MatchFeedBound'; data: MatchFeedBoundEvent }
+  | {
+      name: 'TournamentPartiallyCancelled';
+      data: TournamentPartiallyCancelledEvent;
+    }
+  | { name: 'TournamentClosed'; data: TournamentClosedEvent }
+  | { name: 'FinalSettled'; data: FinalSettledEvent };

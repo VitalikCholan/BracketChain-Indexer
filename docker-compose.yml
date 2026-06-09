@@ -1,0 +1,41 @@
+# BracketChain Indexer — Phase 1 dev stack (devnet, program 3YpkUK).
+#
+# Two services only: Postgres + the NestJS API. No local validator — the
+# program lives on devnet (3YpkUK) and RPC points at Helius devnet (RPC_URL in
+# .env). Event ingestion (Helius dev-webhook + tunnel) is wired at B.1 when the
+# event parser lands; until then the API serves reads + reconciliation.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bc
+      POSTGRES_PASSWORD: bc
+      POSTGRES_DB: bracketchain
+    ports:
+      # Host 5433 → container 5432 (avoids clashing with a system Postgres on
+      # 5432). Host-run prisma uses DATABASE_URL=...@localhost:5433.
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bc -d bracketchain"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    # Base config (RPC_URL=Helius devnet, PROGRAM_ID=3YpkUK, KEYCHAIN_*, flags).
+    env_file: .env
+    # Override DATABASE_URL for the in-network DB host (compose service `db`).
+    environment:
+      DATABASE_URL: postgresql://bc:bc@db:5432/bracketchain
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data:
